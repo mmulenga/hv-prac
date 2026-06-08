@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import GameHeader from '../components/GameHeader'
 
 const TOTAL_TRIALS = 15
@@ -100,10 +100,7 @@ export default function DigitSpan({ onEnd, onBack }) {
     }, 1200)
   }
 
-  // cleanup on unmount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  function cleanup() { clearTimers() }
-  useRef(cleanup) // just store it; we use the ref directly below
+  useEffect(() => clearTimers, [])
 
   if (phase === 'start') {
     return (

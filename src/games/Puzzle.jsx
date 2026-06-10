@@ -72,59 +72,6 @@ function generatePuzzle(seed) {
   return { grid, answer, choices }
 }
 
-// SVG shape renderer
-function ShapeIcon({ shape, fill, size = 28 }) {
-  const cx = size / 2, cy = size / 2, r = size * 0.34
-  const fillColor = '#3b82f6'
-  const strokeColor = '#60a5fa'
-  const sw = 2
-
-  const fillProp = fill === 'solid' ? fillColor : fill === 'hollow' ? 'none' : 'url(#stripe)'
-  const strokeProp = strokeColor
-
-  function renderShape() {
-    switch (shape) {
-      case 'circle':
-        return <circle cx={cx} cy={cy} r={r} fill={fillProp} stroke={strokeProp} strokeWidth={sw} />
-      case 'square':
-        return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} fill={fillProp} stroke={strokeProp} strokeWidth={sw} />
-      case 'triangle':
-        return (
-          <polygon
-            points={`${cx},${cy - r} ${cx + r * 0.87},${cy + r * 0.5} ${cx - r * 0.87},${cy + r * 0.5}`}
-            fill={fillProp} stroke={strokeProp} strokeWidth={sw}
-          />
-        )
-      case 'diamond':
-        return (
-          <polygon
-            points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`}
-            fill={fillProp} stroke={strokeProp} strokeWidth={sw}
-          />
-        )
-      case 'cross':
-        return (
-          <g fill={fillProp} stroke={strokeProp} strokeWidth={sw}>
-            <rect x={cx - r * 0.33} y={cy - r} width={r * 0.66} height={r * 2} />
-            <rect x={cx - r} y={cy - r * 0.33} width={r * 2} height={r * 0.66} />
-          </g>
-        )
-      default:
-        return null
-    }
-  }
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <defs>
-        <pattern id="stripe" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)">
-          <line x1="0" y1="0" x2="0" y2="4" stroke={strokeColor} strokeWidth="2" />
-        </pattern>
-      </defs>
-      {renderShape()}
-    </svg>
-  )
-}
 
 function MatrixCell({ shape, fill, count, size = 24, highlight = false }) {
   const gap = size * 0.15

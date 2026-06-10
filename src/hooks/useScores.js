@@ -35,6 +35,7 @@ export function useScores() {
   // Fetch all personal bests when the user signs in
   useEffect(() => {
     if (!user || !supabase) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFetching(true)
 
     supabase
@@ -57,6 +58,7 @@ export function useScores() {
 
   // Clear bests when user signs out
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!user) setBestScores({})
   }, [user])
 

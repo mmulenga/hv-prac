@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -92,6 +92,7 @@ export default function Profile({ onBack }) {
   const [nameInput, setNameInput] = useState('')
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!user || !supabase) { setLoading(false); return }
 
     Promise.all([
@@ -145,7 +146,7 @@ export default function Profile({ onBack }) {
 
   // ── Summary stats ─────────────────────────────────────────────────────
   const totalGames = allScores.length
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+  const sevenDaysAgo = useMemo(() => new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(), [allScores])
   const thisWeek = allScores.filter(s => s.created_at > sevenDaysAgo).length
   const mostPlayed = GAME_META.reduce(
     (top, g) => {

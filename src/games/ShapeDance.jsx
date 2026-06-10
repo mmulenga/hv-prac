@@ -38,7 +38,6 @@ function generateTrials(target) {
 function ShapeSVG({ shape, color, size = 120 }) {
   const c = size / 2
   const r = size * 0.36
-  const sw = 3
 
   switch (shape) {
     case 'circle':
@@ -109,7 +108,6 @@ function ShapeSVG({ shape, color, size = 120 }) {
 export default function ShapeDance({ onEnd, onBack }) {
   const [phase, setPhase] = useState('start')
   const [target, setTarget] = useState('circle')
-  const [trials, setTrials] = useState([])
   const [trialIdx, setTrialIdx] = useState(0)
   const [currentShape, setCurrentShape] = useState(null)
   const [clicked, setClicked] = useState(false)
@@ -162,7 +160,6 @@ export default function ShapeDance({ onEnd, onBack }) {
 
   function startGame(tgt) {
     const t = generateTrials(tgt)
-    setTrials(t)
     setResults([])
     setScore(0)
     setTrialIdx(0)
@@ -177,12 +174,6 @@ export default function ShapeDance({ onEnd, onBack }) {
   }
 
   useEffect(() => () => clear(), [])
-
-  function pickTarget() {
-    const t = ALL_SHAPES[Math.floor(Math.random() * ALL_SHAPES.length)]
-    setTarget(t)
-    return t
-  }
 
   if (phase === 'start') {
     const tgt = target

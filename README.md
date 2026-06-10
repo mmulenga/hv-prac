@@ -82,6 +82,46 @@ App is available at `http://localhost:5173/`.
 
 Static sites are **free** on DO App Platform. No server is needed — the Supabase client runs entirely in the browser.
 
+### Digital Ocean Droplet (alternative)
+
+Deploy to a self-managed Droplet for full control over the server (custom domain, SSL, caching headers, etc.).
+
+**1. Provision the Droplet (once)**
+
+On a fresh Ubuntu 22.04+ Droplet, run:
+
+```bash
+bash scripts/setup-droplet.sh deploy your-domain.com
+```
+
+This installs Nginx, creates a `deploy` user, sets up the web root at `/var/www/hyperprepapp`, and configures an Nginx virtual host. The script prints the exact steps to follow afterward.
+
+**2. Create a deploy SSH key pair**
+
+```bash
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/hyperprepapp_deploy -N ""
+```
+
+Copy `hyperprepapp_deploy.pub` into `/home/deploy/.ssh/authorized_keys` on the Droplet.
+
+**3. Add GitHub Actions secrets**
+
+In **Settings → Secrets and variables → Actions**, add:
+
+| Secret | Value |
+|---|---|
+| `DROPLET_HOST` | Your Droplet IP or domain |
+| `DROPLET_USER` | `deploy` (or whatever you passed to the setup script) |
+| `DROPLET_SSH_KEY` | Contents of `~/.ssh/hyperprepapp_deploy` (private key) |
+| `VITE_SUPABASE_URL` | `https://your-project.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Your Supabase anon key |
+
+**4. Push to `main`**
+
+The workflow [`.github/workflows/deploy-droplet.yml`](./.github/workflows/deploy-droplet.yml) builds the app with `VITE_BASE_PATH=/` (root path, not `/hyperprepapp/`) and rsyncs `dist/` to the Droplet on every push to `main`. You can also trigger it manually via **Actions → Deploy to DO Droplet → Run workflow**.
+
+> The Nginx config at [`nginx/hyperprepapp.conf`](./nginx/hyperprepapp.conf) serves all routes via `index.html` (SPA fallback) and caches hashed assets for 1 year.
+
 ### GitHub Pages (alternative)
 
 The repo already ships a deploy workflow at [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) that builds and pushes to GitHub Pages on every push to the feature branch.

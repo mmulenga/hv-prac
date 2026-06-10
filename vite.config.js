@@ -9,5 +9,5 @@ export default defineConfig({
       targets: ['defaults', 'safari >= 12', 'ios >= 12'],
     }),
   ],
-  base: '/hv-prac/',
+  base: '/hyperprepapp/',
 })

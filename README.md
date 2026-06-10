@@ -24,8 +24,8 @@ A React + Vite app for practising the cognitive assessment games used in HireVue
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/mmulenga/hv-prac.git
-cd hv-prac
+git clone https://github.com/mmulenga/hyperprepapp.git
+cd hyperprepapp
 npm install
 ```
 
@@ -88,9 +88,9 @@ The repo already ships a deploy workflow at [`.github/workflows/deploy.yml`](./.
 
 1. In the repo → **Settings → Pages → Source**, select **GitHub Actions**.
 2. Push to the branch — the workflow builds and deploys automatically.
-3. Live at `https://mmulenga.github.io/hv-prac/`.
+3. Live at `https://mmulenga.github.io/hyperprepapp/`.
 
-> The Vite base path is already set to `/hv-prac/` in `vite.config.js`.
+> The Vite base path is already set to `/hyperprepapp/` in `vite.config.js`.
 
 ---
 

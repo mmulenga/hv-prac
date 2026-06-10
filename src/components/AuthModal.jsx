@@ -39,7 +39,7 @@ export default function AuthModal({ onClose }) {
 
         <Auth
           supabaseClient={supabase}
-          providers={['google', 'apple']}
+          providers={['google']}
           redirectTo={window.location.origin + '/hv-prac/'}
           appearance={{
             theme: ThemeSupa,

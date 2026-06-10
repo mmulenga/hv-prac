@@ -53,7 +53,6 @@ In the [Supabase SQL Editor](https://supabase.com/dashboard/project/_/sql), run 
 In the Supabase dashboard → **Authentication → Providers**:
 
 - **Google** — create OAuth credentials in Google Cloud Console, paste the Client ID and Secret into Supabase.
-- **Apple** — requires an [Apple Developer account](https://developer.apple.com) ($99/yr). Create a Services ID and a Sign In with Apple key, then configure them in Supabase. Apple review typically takes 1–2 business days.
 
 ### 5. Run the dev server
 
@@ -130,7 +129,7 @@ supabase/
 
 - **React 19 + Vite 8** — frontend framework and build tool
 - **Tailwind CSS 3** — utility-first styling
-- **Supabase** — Postgres database, Row Level Security, Auth (email, Google, Apple)
+- **Supabase** — Postgres database, Row Level Security, Auth (email, Google)
 - **Recharts** — score trend and radar charts on the profile page
 - **@vitejs/plugin-legacy** — transpiles for Safari 12+ / iOS 12+
 - **Stripe** *(planned)* — subscription billing

@@ -17,6 +17,26 @@ const wobbleSec    = d => d < 3 ? 0 : d < 6 ? 5 : d < 9 ? 3 : 2
 const staticRotDeg = d => d < 4 ? 0 : d < 7 ? 20 : 40
 const tileSpinSec  = d => d < 9 ? 0 : d < 11 ? 8 : 5
 
+// Base tile positions in normalised [0,1] coords.
+// calc(x * (100% - 9rem)) keeps every tile fully inside its container.
+// Zones are shuffled each round so the matching pair lands anywhere.
+const ZONES_4 = [[0.04, 0.06], [0.60, 0.04], [0.06, 0.58], [0.62, 0.60]]
+const ZONES_6 = [
+  [0.02, 0.05], [0.38, 0.03], [0.74, 0.05],
+  [0.05, 0.56], [0.40, 0.58], [0.72, 0.55],
+]
+
+function genPositions(k) {
+  const base = k <= 4 ? ZONES_4 : ZONES_6
+  return [...base]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, k)
+    .map(([bx, by]) => [
+      Math.max(0, Math.min(1, bx + (Math.random() - 0.5) * 0.18)),
+      Math.max(0, Math.min(1, by + (Math.random() - 0.5) * 0.18)),
+    ])
+}
+
 function mkPat(n) {
   return Array.from({ length: n }, () => SYMS[~~(Math.random() * SYMS.length)]).sort()
 }
@@ -56,7 +76,7 @@ function genRound(diff) {
     ? Array.from({ length: k }, () => parseFloat((-(Math.random() * spinSec)).toFixed(2)))
     : null
 
-  return { pats, answer: [a1, a2], wobble: wobbleSec(diff), angles, spinSec, spinDelays }
+  return { pats, answer: [a1, a2], wobble: wobbleSec(diff), angles, spinSec, spinDelays, positions: genPositions(k) }
 }
 
 // SVG icon placed at (cx,cy) in a 100×100 viewbox
@@ -318,45 +338,54 @@ export default function ShapeDance({ onEnd, onBack }) {
         />
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-4 gap-4">
-        {/* Status row */}
-        <div className="flex items-center gap-4">
-          <p className={`text-sm font-semibold ${
-            result === null ? 'text-hv-muted' :
-            result ? 'text-emerald-400' : 'text-red-400'
-          }`}>
-            {result === null
-              ? selected.length === 0 ? 'Find the matching pair' : `${selected.length}/2 selected`
-              : result ? '✓ Correct!' : '✗ Wrong pair'
-            }
-          </p>
-          <span className={`font-bold tabular-nums text-sm ${timeLeft <= 4 ? 'text-red-400' : 'text-hv-muted'}`}>
-            {timeLeft}s
-          </span>
-        </div>
-
-        {/* Cube grid */}
-        <div className={`grid gap-3 ${round.pats.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-          {round.pats.map((pat, idx) => (
-            <Cube
-              key={idx}
-              idx={idx}
-              pat={pat}
-              selected={selected}
-              answer={result !== null ? round.answer : []}
-              result={result}
-              wobble={round.wobble}
-              angle={round.angles?.[idx] ?? 0}
-              spinSec={round.spinSec ?? 0}
-              spinDelay={round.spinDelays?.[idx] ?? 0}
-              onClick={() => handleCubeClick(idx)}
-              disabled={result !== null}
-            />
-          ))}
-        </div>
-
-        <p className="text-hv-muted text-xs">Level {diffRef.current + 1}</p>
+      {/* Status row */}
+      <div className="flex items-center justify-center gap-4 px-4 py-2">
+        <p className={`text-sm font-semibold ${
+          result === null ? 'text-hv-muted' :
+          result ? 'text-emerald-400' : 'text-red-400'
+        }`}>
+          {result === null
+            ? selected.length === 0 ? 'Find the matching pair' : `${selected.length}/2 selected`
+            : result ? '✓ Correct!' : '✗ Wrong pair'
+          }
+        </p>
+        <span className={`font-bold tabular-nums text-sm ${timeLeft <= 4 ? 'text-red-400' : 'text-hv-muted'}`}>
+          {timeLeft}s
+        </span>
       </div>
+
+      {/* Scattered tiles — each tile is absolutely positioned in the flex-1 area */}
+      <div className="relative flex-1 w-full">
+        {round.pats.map((pat, idx) => {
+          const [px, py] = round.positions[idx]
+          return (
+            <div
+              key={idx}
+              className="absolute"
+              style={{
+                left: `calc(${px} * (100% - 9rem))`,
+                top:  `calc(${py} * (100% - 9rem))`,
+              }}
+            >
+              <Cube
+                idx={idx}
+                pat={pat}
+                selected={selected}
+                answer={result !== null ? round.answer : []}
+                result={result}
+                wobble={round.wobble}
+                angle={round.angles?.[idx] ?? 0}
+                spinSec={round.spinSec ?? 0}
+                spinDelay={round.spinDelays?.[idx] ?? 0}
+                onClick={() => handleCubeClick(idx)}
+                disabled={result !== null}
+              />
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-center text-hv-muted text-xs pb-3">Level {diffRef.current + 1}</p>
     </div>
   )
 }

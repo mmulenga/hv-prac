@@ -1,216 +1,222 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import GameHeader from '../components/GameHeader'
 
-const TOTAL_TRIALS = 30
-const SHOW_MS = 900    // shape visible
-const BLANK_MS = 350   // gap between
-const TARGET_RATIO = 0.35  // ~35% target trials
+const TOTAL_ROUNDS = 20
+const FEEDBACK_MS  = 900
 
-const ALL_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'star', 'cross', 'pentagon']
-const SHAPE_COLORS = {
-  circle: '#3b82f6',
-  square: '#8b5cf6',
-  triangle: '#f59e0b',
-  diamond: '#10b981',
-  star: '#ef4444',
-  cross: '#ec4899',
-  pentagon: '#06b6d4',
+const SYMS = ['circle', 'star', 'triangle', 'square', 'diamond', 'cross']
+const SYM_CLR = {
+  circle: '#60a5fa', star: '#fbbf24', triangle: '#f87171',
+  square: '#34d399',  diamond: '#c084fc', cross: '#fb923c',
 }
 
-function generateTrials(target) {
-  const targetCount = Math.round(TOTAL_TRIALS * TARGET_RATIO)
-  const nontargetCount = TOTAL_TRIALS - targetCount
-  const nonTargets = ALL_SHAPES.filter(s => s !== target)
+const iconCount = d => d < 3 ? 2 : d < 6 ? 3 : d < 9 ? 4 : 5
+const cubeCount = d => d < 7 ? 4 : 6
+const roundSecs = d => Math.max(8, 18 - d)
+const wobbleSec = d => d < 3 ? 0 : d < 6 ? 5 : d < 9 ? 3 : 2
 
-  const trials = [
-    ...Array(targetCount).fill(target),
-    ...Array.from({ length: nontargetCount }, () => nonTargets[Math.floor(Math.random() * nonTargets.length)]),
-  ]
+function mkPat(n) {
+  return Array.from({ length: n }, () => SYMS[~~(Math.random() * SYMS.length)]).sort()
+}
+function patEq(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]) }
 
-  // Shuffle with constraint: not too many targets in a row
-  for (let i = trials.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [trials[i], trials[j]] = [trials[j], trials[i]]
+function genRound(diff) {
+  const n  = iconCount(diff)
+  const k  = cubeCount(diff)
+  const mp = mkPat(n)
+
+  const dists = []
+  for (let t = 0; dists.length < k - 2 && t < 500; t++) {
+    const p = mkPat(n)
+    if (!patEq(p, mp) && !dists.some(d => patEq(d, p))) dists.push(p)
   }
-  return trials
+
+  const pos = Array.from({ length: k }, (_, i) => i).sort(() => Math.random() - 0.5)
+  const [a1, a2] = [pos[0], pos[1]].sort((a, b) => a - b)
+
+  const pats = Array.from({ length: k }, (_, i) => {
+    if (i === a1 || i === a2) return [...mp]
+    const d = dists.shift()
+    return d ?? mkPat(n)
+  })
+
+  return { pats, answer: [a1, a2], wobble: wobbleSec(diff) }
 }
 
-function ShapeSVG({ shape, color, size = 120 }) {
-  const c = size / 2
-  const r = size * 0.36
+// SVG icon placed at (cx,cy) in a 100×100 viewbox
+function Sym({ name, cx, cy, sz = 18 }) {
+  const r = sz * 0.42
+  const c = SYM_CLR[name]
+  if (name === 'circle')   return <circle cx={cx} cy={cy} r={r} fill={c} />
+  if (name === 'square')   return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} fill={c} rx={2} />
+  if (name === 'triangle') return <polygon points={`${cx},${cy - r} ${cx + r * .87},${cy + r * .5} ${cx - r * .87},${cy + r * .5}`} fill={c} />
+  if (name === 'diamond')  return <polygon points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`} fill={c} />
+  if (name === 'star')     return <polygon fill={c} points={Array.from({ length: 10 }, (_, i) => { const a = i * Math.PI / 5 - Math.PI / 2, rad = i % 2 === 0 ? r : r * .4; return `${cx + rad * Math.cos(a)},${cy + rad * Math.sin(a)}` }).join(' ')} />
+  if (name === 'cross')    return <g fill={c}><rect x={cx - r * .25} y={cy - r} width={r * .5} height={r * 2} rx={1} /><rect x={cx - r} y={cy - r * .25} width={r * 2} height={r * .5} rx={1} /></g>
+  return null
+}
 
-  switch (shape) {
-    case 'circle':
-      return (
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <circle cx={c} cy={c} r={r} fill={color} />
-        </svg>
-      )
-    case 'square':
-      return (
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <rect x={c - r} y={c - r} width={r * 2} height={r * 2} fill={color} rx={4} />
-        </svg>
-      )
-    case 'triangle':
-      return (
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <polygon
-            points={`${c},${c - r} ${c + r * 0.87},${c + r * 0.5} ${c - r * 0.87},${c + r * 0.5}`}
-            fill={color}
-          />
-        </svg>
-      )
-    case 'diamond':
-      return (
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <polygon points={`${c},${c - r} ${c + r},${c} ${c},${c + r} ${c - r},${c}`} fill={color} />
-        </svg>
-      )
-    case 'star':
-      return (
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <polygon
-            points={Array.from({ length: 10 }, (_, i) => {
-              const angle = (i * Math.PI) / 5 - Math.PI / 2
-              const rad = i % 2 === 0 ? r : r * 0.42
-              return `${c + rad * Math.cos(angle)},${c + rad * Math.sin(angle)}`
-            }).join(' ')}
-            fill={color}
-          />
-        </svg>
-      )
-    case 'cross':
-      return (
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <rect x={c - r * 0.28} y={c - r} width={r * 0.56} height={r * 2} fill={color} rx={3} />
-          <rect x={c - r} y={c - r * 0.28} width={r * 2} height={r * 0.56} fill={color} rx={3} />
-        </svg>
-      )
-    case 'pentagon':
-      return (
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <polygon
-            points={Array.from({ length: 5 }, (_, i) => {
-              const angle = (i * 2 * Math.PI) / 5 - Math.PI / 2
-              return `${c + r * Math.cos(angle)},${c + r * Math.sin(angle)}`
-            }).join(' ')}
-            fill={color}
-          />
-        </svg>
-      )
-    default:
-      return null
+const ICON_POS = {
+  2: [[34, 50], [66, 50]],
+  3: [[50, 28], [30, 68], [70, 68]],
+  4: [[28, 28], [72, 28], [28, 72], [72, 72]],
+  5: [[26, 26], [66, 26], [46, 52], [26, 76], [68, 76]],
+}
+
+function Cube({ pat, idx, selected, answer, result, wobble, onClick, disabled }) {
+  const pos   = ICON_POS[pat.length] || ICON_POS[2]
+  const isSel = selected.includes(idx)
+  const isAns = answer.includes(idx)
+
+  let border = 'border-hv-border'
+  let bg     = 'bg-hv-card'
+
+  if (result !== null) {
+    if (isAns)      { border = 'border-emerald-500'; bg = 'bg-emerald-950/30' }
+    else if (isSel) { border = 'border-red-500';     bg = 'bg-red-950/30' }
+  } else if (isSel) {
+    border = 'border-blue-400'; bg = 'bg-blue-950/30'
+  } else if (!disabled) {
+    border = 'border-hv-border hover:border-slate-400'
   }
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`relative w-36 h-36 rounded-2xl border-2 flex items-center justify-center
+        transition-all duration-100 active:scale-95 ${border} ${bg}`}
+      style={wobble > 0 ? { animation: `cubeWobble ${wobble}s ease-in-out infinite` } : undefined}
+    >
+      <svg width={96} height={96} viewBox="0 0 100 100">
+        {pos.map(([px, py], i) => <Sym key={i} name={pat[i]} cx={px} cy={py} />)}
+      </svg>
+      {isSel && result === null && (
+        <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
+          <span className="text-white text-xs font-bold">{selected.indexOf(idx) + 1}</span>
+        </div>
+      )}
+    </button>
+  )
 }
 
-// phase: 'start' | 'playing' | 'blank' | 'results'
+// phase: 'start' | 'playing' | 'results'
 export default function ShapeDance({ onEnd, onBack }) {
-  const [phase, setPhase] = useState('start')
-  const [target, setTarget] = useState('circle')
-  const [trialIdx, setTrialIdx] = useState(0)
-  const [currentShape, setCurrentShape] = useState(null)
-  const [clicked, setClicked] = useState(false)
-  const [results, setResults] = useState([])  // {shape, isTarget, clicked}
-  const [score, setScore] = useState(0)
-  const [showFeedback, setShowFeedback] = useState(null) // 'hit'|'miss'|'false-alarm'|null
-  const timerRef = useRef(null)
-  const clickedRef = useRef(false)
+  const [phase,    setPhase]    = useState('start')
+  const [round,    setRound]    = useState(null)
+  const [selected, setSelected] = useState([])
+  const [result,   setResult]   = useState(null)  // null | true | false
+  const [score,    setScore]    = useState(0)
+  const [roundNum, setRoundNum] = useState(0)
+  const [timeLeft, setTimeLeft] = useState(0)
 
-  const clear = () => clearTimeout(timerRef.current)
+  const diffRef     = useRef(0)
+  const roundNumRef = useRef(0)
+  const resultRef   = useRef(null)
+  const answerRef   = useRef([])
+  const selectedRef = useRef([])
+  const timeLeftRef = useRef(0)
+  const timerRef    = useRef(null)
+  const fbTimerRef  = useRef(null)
 
-  const advanceTrial = useCallback((idx, trialList, tgt, prevResults, prevScore) => {
-    if (idx >= TOTAL_TRIALS) {
-      setPhase('results')
-      return
+  function clearAll() {
+    clearInterval(timerRef.current)
+    clearTimeout(fbTimerRef.current)
+  }
+
+  function startRound(diff, num) {
+    clearAll()
+    const r = genRound(diff)
+    const t = roundSecs(diff)
+
+    roundNumRef.current = num
+    resultRef.current   = null
+    answerRef.current   = r.answer
+    selectedRef.current = []
+    timeLeftRef.current = t
+
+    setRound(r)
+    setSelected([])
+    setResult(null)
+    setRoundNum(num)
+    setTimeLeft(t)
+
+    timerRef.current = setInterval(() => {
+      timeLeftRef.current -= 1
+      setTimeLeft(timeLeftRef.current)
+      if (timeLeftRef.current <= 0) {
+        clearInterval(timerRef.current)
+        if (resultRef.current === null) finishRound(false)
+      }
+    }, 1000)
+  }
+
+  function finishRound(correct) {
+    clearAll()
+    resultRef.current = correct
+    setResult(correct)
+    if (correct) setScore(s => s + 1)
+
+    fbTimerRef.current = setTimeout(() => {
+      const next = roundNumRef.current + 1
+      if (next >= TOTAL_ROUNDS) { setPhase('results'); return }
+      if (correct) diffRef.current = Math.min(12, diffRef.current + 1)
+      else         diffRef.current = Math.max(0,  diffRef.current - 1)
+      startRound(diffRef.current, next)
+    }, FEEDBACK_MS)
+  }
+
+  function handleCubeClick(idx) {
+    if (resultRef.current !== null) return
+    if (selectedRef.current.length >= 2) return
+
+    let next
+    if (selectedRef.current.includes(idx)) {
+      next = selectedRef.current.filter(i => i !== idx)
+    } else {
+      next = [...selectedRef.current, idx]
     }
-    const shape = trialList[idx]
-    setCurrentShape(shape)
-    setClicked(false)
-    setShowFeedback(null)
-    clickedRef.current = false
-    setPhase('playing')
 
-    timerRef.current = setTimeout(() => {
-      // Time expired — evaluate
-      const wasTarget = shape === tgt
-      const didClick = clickedRef.current
-      let outcome, points
-      if (wasTarget && didClick) { outcome = 'hit'; points = 1 }
-      else if (!wasTarget && !didClick) { outcome = 'correct-reject'; points = 0.5 }
-      else if (wasTarget && !didClick) { outcome = 'miss'; points = -0.5 }
-      else { outcome = 'false-alarm'; points = -0.5 }
+    selectedRef.current = next
+    setSelected([...next])
 
-      const newScore = Math.max(0, prevScore + points)
-      const newResults = [...prevResults, { shape, isTarget: wasTarget, outcome }]
-      setScore(newScore)
-      setResults(newResults)
-      if (outcome === 'hit') setShowFeedback('hit')
-      else if (outcome === 'false-alarm') setShowFeedback('false-alarm')
+    if (next.length === 2) {
+      const ans = answerRef.current
+      const ok  = ans.includes(next[0]) && ans.includes(next[1])
+      finishRound(ok)
+    }
+  }
 
-      setCurrentShape(null)
-      setPhase('blank')
-      timerRef.current = setTimeout(() => {
-        setShowFeedback(null)
-        advanceTrial(idx + 1, trialList, tgt, newResults, newScore)
-        setTrialIdx(idx + 1)
-      }, BLANK_MS)
-    }, SHOW_MS)
-  }, [])
-
-  function startGame(tgt) {
-    const t = generateTrials(tgt)
-    setResults([])
+  function startGame() {
+    diffRef.current = 0
     setScore(0)
-    setTrialIdx(0)
-    setTarget(tgt)
-    advanceTrial(0, t, tgt, [], 0)
+    setPhase('playing')
+    startRound(0, 0)
   }
 
-  function handleClick() {
-    if (phase !== 'playing') return
-    clickedRef.current = true
-    setClicked(true)
-  }
+  useEffect(() => () => clearAll(), [])
 
-  useEffect(() => () => clear(), [])
-
+  // ── Start screen ──────────────────────────────────────────────────────────
   if (phase === 'start') {
-    const tgt = target
     return (
       <div className="min-h-screen bg-hv-bg flex flex-col">
         <GameHeader title="Shape Dance" onBack={onBack} />
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="max-w-sm w-full text-center space-y-6 animate-fade-in">
-            <div className="text-6xl">🔺</div>
+            <div className="text-6xl">🎲</div>
             <h2 className="text-white text-2xl font-bold">Shape Dance</h2>
             <p className="text-slate-400 leading-relaxed">
-              Shapes will flash one at a time. Press the button (or tap) <em>only</em> when
-              you see the target shape. Ignore all other shapes.
+              Four cubes appear on screen — each face shows a unique arrangement of symbols.
+              Two cubes share an identical pattern. Find the matching pair before time runs out.
+              Cubes wobble as difficulty increases, making patterns harder to read.
             </p>
             <ul className="text-sm text-slate-400 space-y-1">
-              <li>• {TOTAL_TRIALS} trials · shapes shown for ~0.9s</li>
-              <li>• Hit target: +1 · Miss or false alarm: −0.5</li>
-              <li>• Stay focused — shapes move fast!</li>
+              <li>• {TOTAL_ROUNDS} rounds · adaptive difficulty</li>
+              <li>• More symbols &amp; motion at higher levels</li>
+              <li>• Tap the 2 matching cubes to score</li>
             </ul>
-
-            {/* Target selector */}
-            <div className="bg-hv-card border border-hv-border rounded-xl p-4">
-              <p className="text-slate-400 text-sm mb-3">Your target shape:</p>
-              <div className="flex justify-center">
-                <ShapeSVG shape={tgt} color={SHAPE_COLORS[tgt]} size={80} />
-              </div>
-              <p className="text-white font-semibold mt-2 capitalize">{tgt}</p>
-              <button
-                onClick={() => setTarget(ALL_SHAPES[(ALL_SHAPES.indexOf(target) + 1) % ALL_SHAPES.length])}
-                className="mt-2 text-xs text-hv-muted hover:text-white transition-colors underline"
-              >
-                Change target
-              </button>
-            </div>
-
             <button
-              onClick={() => startGame(tgt)}
+              onClick={startGame}
               className="w-full py-3 rounded-xl bg-rose-700 hover:bg-rose-600 text-white font-semibold transition-colors"
             >
               Start Game
@@ -221,60 +227,32 @@ export default function ShapeDance({ onEnd, onBack }) {
     )
   }
 
+  // ── Results screen ────────────────────────────────────────────────────────
   if (phase === 'results') {
-    const hits = results.filter(r => r.outcome === 'hit').length
-    const misses = results.filter(r => r.outcome === 'miss').length
-    const falseAlarms = results.filter(r => r.outcome === 'false-alarm').length
-    const correctRejects = results.filter(r => r.outcome === 'correct-reject').length
-    const targetTrials = results.filter(r => r.isTarget).length
-    const hitRate = targetTrials > 0 ? Math.round((hits / targetTrials) * 100) : 0
-
+    const pct = Math.round((score / TOTAL_ROUNDS) * 100)
     return (
       <div className="min-h-screen bg-hv-bg flex flex-col">
         <GameHeader title="Shape Dance" onBack={onBack} />
         <div className="flex-1 flex items-center justify-center p-6">
-          <div className="max-w-sm w-full space-y-5 animate-scale-in">
-            <div className="text-center">
-              <div className="w-24 h-24 mx-auto rounded-full bg-hv-card border-4 border-rose-600 flex items-center justify-center mb-4">
-                <span className="text-2xl font-bold text-white">{Math.round(score)}</span>
-              </div>
+          <div className="max-w-sm w-full text-center space-y-6 animate-scale-in">
+            <div className="w-24 h-24 mx-auto rounded-full bg-hv-card border-4 border-rose-600 flex items-center justify-center">
+              <span className="text-3xl font-bold text-white">{score}</span>
+            </div>
+            <div>
               <h2 className="text-white text-2xl font-bold">
-                {hitRate >= 80 ? 'Sharp Focus' : hitRate >= 60 ? 'Good' : 'Keep Practicing'}
+                {pct >= 80 ? 'Sharp Eye' : pct >= 60 ? 'Good' : 'Keep Practicing'}
               </h2>
+              <p className="text-slate-400 mt-1">{score} / {TOTAL_ROUNDS} correct</p>
             </div>
-
-            <div className="bg-hv-card border border-hv-border rounded-xl p-4 grid grid-cols-2 gap-3 text-sm">
-              <div className="text-center">
-                <p className="text-emerald-400 font-bold text-xl">{hits}</p>
-                <p className="text-hv-muted">Hits</p>
-              </div>
-              <div className="text-center">
-                <p className="text-red-400 font-bold text-xl">{misses}</p>
-                <p className="text-hv-muted">Misses</p>
-              </div>
-              <div className="text-center">
-                <p className="text-red-400 font-bold text-xl">{falseAlarms}</p>
-                <p className="text-hv-muted">False Alarms</p>
-              </div>
-              <div className="text-center">
-                <p className="text-blue-400 font-bold text-xl">{correctRejects}</p>
-                <p className="text-hv-muted">Correct Reject</p>
-              </div>
-            </div>
-
-            <p className="text-center text-hv-muted text-sm">
-              Hit rate: <span className="text-white font-semibold">{hitRate}%</span>
-            </p>
-
             <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => { setScore(0); setTrialIdx(0); setResults([]); startGame(target) }}
+                onClick={startGame}
                 className="py-3 rounded-xl bg-hv-card border border-hv-border text-white font-semibold hover:border-rose-600 transition-colors"
               >
                 Play Again
               </button>
               <button
-                onClick={() => onEnd({ score: Math.round(score), hitRate, display: `${hitRate}% hit` })}
+                onClick={() => onEnd({ score, total: TOTAL_ROUNDS, display: `${score}/${TOTAL_ROUNDS}` })}
                 className="py-3 rounded-xl bg-rose-700 text-white font-semibold hover:bg-rose-600 transition-colors"
               >
                 Done
@@ -286,69 +264,64 @@ export default function ShapeDance({ onEnd, onBack }) {
     )
   }
 
-  const progress = (trialIdx / TOTAL_TRIALS) * 100
+  // ── Playing screen ────────────────────────────────────────────────────────
+  if (!round) return null
+
+  const maxSecs  = roundSecs(diffRef.current)
+  const timerPct = Math.max(0, (timeLeft / maxSecs) * 100)
 
   return (
     <div className="min-h-screen bg-hv-bg flex flex-col">
       <GameHeader
         title="Shape Dance"
         onBack={onBack}
-        round={trialIdx + (phase === 'playing' ? 1 : 1)}
-        totalRounds={TOTAL_TRIALS}
-        score={Math.round(score)}
+        round={roundNum + 1}
+        totalRounds={TOTAL_ROUNDS}
+        score={score}
       />
 
-      {/* Progress bar */}
-      <div className="h-1 bg-hv-border">
-        <div className="h-1 bg-rose-600 transition-all duration-200" style={{ width: `${progress}%` }} />
+      <div className="h-1.5 bg-hv-border">
+        <div
+          className={`h-1.5 transition-all duration-1000 ${timeLeft > 8 ? 'bg-rose-600' : timeLeft > 4 ? 'bg-amber-500' : 'bg-red-400'}`}
+          style={{ width: `${timerPct}%` }}
+        />
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-6 gap-8 select-none">
-        {/* Target reminder */}
-        <div className="flex items-center gap-3 bg-hv-card border border-hv-border rounded-xl px-4 py-2">
-          <span className="text-slate-400 text-sm">Target:</span>
-          <ShapeSVG shape={target} color={SHAPE_COLORS[target]} size={32} />
-          <span className="text-white font-semibold text-sm capitalize">{target}</span>
-        </div>
-
-        {/* Shape arena */}
-        <div
-          className={`w-48 h-48 rounded-3xl flex items-center justify-center transition-all duration-100
-            ${phase === 'playing' && clicked ? 'border-2 border-rose-500 bg-rose-900/20' : 'border-2 border-hv-border bg-hv-card'}
-            ${showFeedback === 'hit' ? 'border-emerald-500 bg-emerald-900/20' : ''}
-            ${showFeedback === 'false-alarm' ? 'border-red-500 bg-red-900/20' : ''}
-          `}
-        >
-          {phase === 'playing' && currentShape ? (
-            <div className="animate-scale-in">
-              <ShapeSVG shape={currentShape} color={SHAPE_COLORS[currentShape]} size={120} />
-            </div>
-          ) : (
-            <div className="w-4 h-4 rounded-full bg-hv-border opacity-40" />
-          )}
-        </div>
-
-        {/* Big tap button */}
-        <button
-          onMouseDown={handleClick}
-          onTouchStart={handleClick}
-          disabled={phase !== 'playing' || clicked}
-          className={`w-48 h-16 rounded-2xl font-bold text-lg transition-all duration-100
-            ${phase === 'playing' && !clicked
-              ? 'bg-rose-700 hover:bg-rose-600 active:scale-95 text-white shadow-lg shadow-rose-900/50'
-              : 'bg-hv-card border border-hv-border text-hv-muted cursor-not-allowed'
+      <div className="flex-1 flex flex-col items-center justify-center p-4 gap-4">
+        {/* Status row */}
+        <div className="flex items-center gap-4">
+          <p className={`text-sm font-semibold ${
+            result === null ? 'text-hv-muted' :
+            result ? 'text-emerald-400' : 'text-red-400'
+          }`}>
+            {result === null
+              ? selected.length === 0 ? 'Find the matching pair' : `${selected.length}/2 selected`
+              : result ? '✓ Correct!' : '✗ Wrong pair'
             }
-          `}
-        >
-          {clicked ? '✓ Pressed' : 'TAP'}
-        </button>
-
-        {/* Feedback flash */}
-        {showFeedback && (
-          <p className={`text-sm font-semibold animate-fade-in ${showFeedback === 'hit' ? 'text-emerald-400' : 'text-red-400'}`}>
-            {showFeedback === 'hit' ? '✓ Hit!' : '✗ False alarm'}
           </p>
-        )}
+          <span className={`font-bold tabular-nums text-sm ${timeLeft <= 4 ? 'text-red-400' : 'text-hv-muted'}`}>
+            {timeLeft}s
+          </span>
+        </div>
+
+        {/* Cube grid */}
+        <div className={`grid gap-3 ${round.pats.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          {round.pats.map((pat, idx) => (
+            <Cube
+              key={idx}
+              idx={idx}
+              pat={pat}
+              selected={selected}
+              answer={result !== null ? round.answer : []}
+              result={result}
+              wobble={round.wobble}
+              onClick={() => handleCubeClick(idx)}
+              disabled={result !== null}
+            />
+          ))}
+        </div>
+
+        <p className="text-hv-muted text-xs">Level {diffRef.current + 1}</p>
       </div>
     </div>
   )

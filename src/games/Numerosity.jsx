@@ -2,9 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import GameHeader from '../components/GameHeader'
 
 const GAME_DURATION = 90   // seconds
-const GRID_SIZE = 6
-const OPS = ['+', '-', '×', '÷']
-const OP_LABELS = { '+': 'Addition', '-': 'Subtraction', '×': 'Multiplication', '÷': 'Division' }
+const TILE_COUNT    = 9    // 3×3 hexagonal field
 
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -19,89 +17,145 @@ function shuffle(arr) {
   return a
 }
 
-function generateRound(difficulty) {
-  const op = OPS[Math.floor(Math.random() * OPS.length)]
-  const maxNum = 10 + difficulty * 3
-  let a, b, target
-
-  switch (op) {
-    case '+':
-      a = randInt(1, maxNum)
-      b = randInt(1, maxNum)
-      target = a + b
-      break
-    case '-':
-      a = randInt(3, maxNum)
-      b = randInt(1, a - 1)
-      target = a - b
-      break
-    case '×':
-      a = randInt(2, Math.min(12, 3 + difficulty))
-      b = randInt(2, Math.min(12, 3 + difficulty))
-      target = a * b
-      break
-    case '÷': {
-      const divisor = randInt(2, Math.min(10, 3 + difficulty))
-      const quotient = randInt(2, Math.min(12, 3 + difficulty))
-      a = divisor * quotient
-      b = divisor
-      target = quotient
-      break
-    }
-    default:
-      a = 1; b = 1; target = 2
-  }
-
-  // Build tile pool: correct pair + distractors that don't accidentally solve it
-  const correctSet = new Set([a, b])
-  const distractors = []
-  let attempts = 0
-  while (distractors.length < GRID_SIZE - 2 && attempts < 200) {
-    const d = randInt(1, Math.max(a, b, target) + 5)
-    if (!correctSet.has(d) && !distractors.includes(d)) {
-      distractors.push(d)
-    }
-    attempts++
-  }
-
-  const numbers = shuffle([a, b, ...distractors].slice(0, GRID_SIZE))
-  return { op, target, numbers, answerPair: [a, b] }
+// Stage the operator based on how many rounds have been attempted
+function pickOp(roundsAttempted) {
+  if (roundsAttempted < 4)  return '+'
+  if (roundsAttempted < 8)  return ['+', '-'][~~(Math.random() * 2)]
+  if (roundsAttempted < 12) return ['+', '-', '×'][~~(Math.random() * 3)]
+  return ['+', '-', '×', '÷'][~~(Math.random() * 4)]
 }
 
-function isCorrectPair(op, n1, n2, target) {
-  switch (op) {
-    case '+': return n1 + n2 === target
-    case '-': return Math.abs(n1 - n2) === target
-    case '×': return n1 * n2 === target
-    case '÷':
-      return (n2 !== 0 && Number.isInteger(n1 / n2) && n1 / n2 === target) ||
-             (n1 !== 0 && Number.isInteger(n2 / n1) && n2 / n1 === target)
-    default: return false
+const OP_LABELS = { '+': 'Addition', '-': 'Subtraction', '×': 'Multiplication', '÷': 'Division' }
+
+function generateRound(difficulty, roundsAttempted) {
+  const op     = pickOp(roundsAttempted)
+  const maxNum = 8 + difficulty * 3
+  let answers, target
+
+  if (op === '+') {
+    const useThree = difficulty > 2 && Math.random() < 0.4
+    if (useThree) {
+      const [a, b, c] = [randInt(2, maxNum), randInt(2, maxNum), randInt(2, maxNum)]
+      target = a + b + c; answers = [a, b, c]
+    } else {
+      const [a, b] = [randInt(2, maxNum), randInt(2, maxNum)]
+      target = a + b; answers = [a, b]
+    }
+  } else if (op === '-') {
+    const a = randInt(5, maxNum), b = randInt(1, a - 1)
+    target = a - b; answers = [a, b]
+  } else if (op === '×') {
+    const a = randInt(2, Math.min(12, 3 + difficulty)), b = randInt(2, Math.min(12, 3 + difficulty))
+    target = a * b; answers = [a, b]
+  } else {
+    const divisor = randInt(2, Math.min(9, 3 + difficulty)), quotient = randInt(2, Math.min(12, 3 + difficulty))
+    target = quotient; answers = [divisor * quotient, divisor]
   }
+
+  // Fill remaining tile slots with distractors that don't accidentally form the answer
+  const ansSet = new Set(answers)
+  const distractors = []
+  let att = 0
+  while (distractors.length < TILE_COUNT - answers.length && att < 400) {
+    const d = randInt(2, Math.max(...answers, target) + 8)
+    if (!ansSet.has(d) && !distractors.includes(d)) {
+      // Quick check: don't let a single distractor + any answer tile create the target for +
+      let bad = false
+      if (op === '+' && answers.length === 2) {
+        bad = answers.some(a => a + d === target)
+      }
+      if (!bad) distractors.push(d)
+    }
+    att++
+  }
+
+  const numbers = shuffle([...answers, ...distractors]).slice(0, TILE_COUNT)
+  return { op, target, numbers, answers }
+}
+
+// Compute running result for current selection
+function runningResult(op, nums) {
+  if (nums.length === 0) return null
+  if (op === '+') return nums.reduce((s, n) => s + n, 0)
+  if (nums.length < 2) return null
+  const [a, b] = nums
+  if (op === '-') return a - b
+  if (op === '×') return a * b
+  if (op === '÷') {
+    if (b !== 0 && Number.isInteger(a / b)) return a / b
+    if (a !== 0 && Number.isInteger(b / a)) return b / a
+  }
+  return null
+}
+
+function isCorrect(op, selected, target) {
+  const r = runningResult(op, selected)
+  return r === target
+}
+
+function autoSubmit(op, selected, target) {
+  if (op === '+') return runningResult(op, selected) === target
+  return selected.length === 2
+}
+
+// ── Hexagonal tile component ──────────────────────────────────────────────
+function HexTile({ num, selected, feedback, onClick, disabled }) {
+  let bg = 'bg-hv-card'
+  if (feedback === 'correct' && selected) bg = 'bg-emerald-800'
+  else if (feedback === 'wrong' && selected) bg = 'bg-red-900'
+  else if (selected) bg = 'bg-blue-800'
+
+  const hexClip = 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)'
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`relative w-20 h-[88px] flex items-center justify-center transition-all duration-100 active:scale-95`}
+    >
+      {/* Background hex */}
+      <div
+        className={`absolute inset-0 ${bg} transition-colors duration-100`}
+        style={{ clipPath: hexClip }}
+      />
+      {/* Inner border effect */}
+      <div
+        className={`absolute inset-[3px] transition-colors duration-100
+          ${selected
+            ? (feedback === 'correct' ? 'bg-emerald-700' : feedback === 'wrong' ? 'bg-red-800' : 'bg-blue-700')
+            : 'bg-hv-bg'
+          }`}
+        style={{ clipPath: hexClip }}
+      />
+      <span className="relative z-10 text-xl font-bold text-white tabular-nums select-none">
+        {num}
+      </span>
+    </button>
+  )
 }
 
 // phase: 'start' | 'playing' | 'results'
 export default function Numerosity({ onEnd, onBack }) {
-  const [phase, setPhase] = useState('start')
-  const [round, setRound] = useState(null)
-  const [selected, setSelected] = useState([])   // up to 2 tile indices
+  const [phase,    setPhase]    = useState('start')
+  const [round,    setRound]    = useState(null)
+  const [selected, setSelected] = useState([])   // tile indices (up to 3)
   const [feedback, setFeedback] = useState(null) // null | 'correct' | 'wrong'
   const [timeLeft, setTimeLeft] = useState(GAME_DURATION)
-  const [score, setScore] = useState(0)
-  const [total, setTotal] = useState(0)
+  const [score,    setScore]    = useState(0)
+  const [total,    setTotal]    = useState(0)
 
-  // Refs for values needed inside timer/callback closures without stale reads
-  const difficultyRef = useRef(0)
+  const difficultyRef    = useRef(0)
   const feedbackActiveRef = useRef(false)
-  const phaseRef = useRef('start')
-  const roundRef = useRef(null)
-  const countdownRef = useRef(null)
+  const phaseRef         = useRef('start')
+  const roundRef         = useRef(null)
+  const totalRef         = useRef(0)
+  const countdownRef     = useRef(null)
   const feedbackTimerRef = useRef(null)
 
   function setPhaseSync(p) { phaseRef.current = p; setPhase(p) }
 
   function spawnRound() {
-    const r = generateRound(difficultyRef.current)
+    const r = generateRound(difficultyRef.current, totalRef.current)
     roundRef.current = r
     setRound({ ...r })
     setSelected([])
@@ -118,6 +172,7 @@ export default function Numerosity({ onEnd, onBack }) {
   function startGame() {
     difficultyRef.current = 0
     feedbackActiveRef.current = false
+    totalRef.current = 0
     setScore(0)
     setTotal(0)
     setTimeLeft(GAME_DURATION)
@@ -134,23 +189,28 @@ export default function Numerosity({ onEnd, onBack }) {
 
   function handleTileClick(idx) {
     if (phaseRef.current !== 'playing' || feedbackActiveRef.current) return
+    const r = roundRef.current
 
     setSelected(prev => {
       // Deselect if already selected
       if (prev.includes(idx)) return prev.filter(i => i !== idx)
-      const next = [...prev, idx]
+      // Cap at 3 selections
+      if (prev.length >= 3) return prev
 
-      if (next.length === 2) {
+      const next = [...prev, idx]
+      const nums = next.map(i => r.numbers[i])
+
+      if (autoSubmit(r.op, nums, r.target)) {
         feedbackActiveRef.current = true
-        const r = roundRef.current
-        const n1 = r.numbers[next[0]]
-        const n2 = r.numbers[next[1]]
-        const correct = isCorrectPair(r.op, n1, n2, r.target)
+        const correct = isCorrect(r.op, nums, r.target)
 
         if (correct) {
-          difficultyRef.current = Math.min(difficultyRef.current + 1, 8)
+          difficultyRef.current = Math.min(10, difficultyRef.current + 1)
           setScore(s => s + 1)
+        } else {
+          difficultyRef.current = Math.max(0, difficultyRef.current - 1)
         }
+        totalRef.current += 1
         setTotal(t => t + 1)
         setFeedback(correct ? 'correct' : 'wrong')
 
@@ -178,21 +238,13 @@ export default function Numerosity({ onEnd, onBack }) {
             <div className="text-5xl">🔢</div>
             <h2 className="text-white text-2xl font-bold">Numerosity</h2>
             <p className="text-slate-400 leading-relaxed">
-              An operation symbol will appear at the top of each round.
-              Select the <strong className="text-white">two numbers</strong> from the grid that,
-              when combined using that operation, equal the target result.
+              A target number and operator appear. A field of numbered hexagonal tiles covers the
+              screen — tap them in sequence to build an expression that hits the target.
             </p>
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              {OPS.map(op => (
-                <div key={op} className="bg-hv-card border border-hv-border rounded-lg p-3 text-left">
-                  <span className="text-2xl font-bold text-white mr-2">{op}</span>
-                  <span className="text-hv-muted">{OP_LABELS[op]}</span>
-                </div>
-              ))}
-            </div>
             <ul className="text-sm text-slate-400 space-y-1 text-left">
-              <li>• {GAME_DURATION} second time limit</li>
-              <li>• Answer as many as possible before time runs out</li>
+              <li>• {GAME_DURATION}s time limit · answer as many as possible</li>
+              <li>• Operators unlock as you progress: + → − → × → ÷</li>
+              <li>• For addition you may select 2 or 3 tiles</li>
               <li>• Difficulty increases with correct answers</li>
             </ul>
             <button
@@ -209,7 +261,7 @@ export default function Numerosity({ onEnd, onBack }) {
 
   // ── Results screen ────────────────────────────────────────────────────────
   if (phase === 'results') {
-    const pct = total > 0 ? Math.round((score / total) * 100) : 0
+    const pct   = total > 0 ? Math.round((score / total) * 100) : 0
     const grade = score >= 20 ? 'Exceptional' : score >= 14 ? 'Strong' : score >= 8 ? 'Good' : 'Keep Practicing'
     return (
       <div className="min-h-screen bg-hv-bg flex flex-col">
@@ -244,8 +296,24 @@ export default function Numerosity({ onEnd, onBack }) {
   }
 
   // ── Playing screen ────────────────────────────────────────────────────────
-  const timerPct = (timeLeft / GAME_DURATION) * 100
+  const timerPct   = (timeLeft / GAME_DURATION) * 100
   const timerColor = timeLeft > 30 ? 'bg-hv-accent' : timeLeft > 10 ? 'bg-amber-500' : 'bg-red-500'
+
+  const selectedNums = round ? selected.map(i => round.numbers[i]) : []
+  const runTotal     = round && selectedNums.length > 0 ? runningResult(round.op, selectedNums) : null
+  const isHit        = runTotal === round?.target
+
+  // Build expression string for display
+  let expression = ''
+  if (round && selectedNums.length > 0) {
+    if (round.op === '+') {
+      expression = `${selectedNums.join(' + ')}${runTotal !== null ? ` = ${runTotal}` : ''}`
+    } else if (selectedNums.length === 1) {
+      expression = `${selectedNums[0]} ${round.op} …`
+    } else {
+      expression = `${selectedNums[0]} ${round.op} ${selectedNums[1]}${runTotal !== null ? ` = ${runTotal}` : ''}`
+    }
+  }
 
   return (
     <div className="min-h-screen bg-hv-bg flex flex-col">
@@ -274,68 +342,63 @@ export default function Numerosity({ onEnd, onBack }) {
         <div className={`h-1 transition-all duration-1000 ${timerColor}`} style={{ width: `${timerPct}%` }} />
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6">
+      <div className="flex-1 flex flex-col items-center justify-center p-4 gap-5">
         {round && (
           <>
-            {/* Operation + target */}
-            <div className="text-center space-y-1 animate-fade-in" key={round.target + round.op}>
-              <div className="flex items-center justify-center gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-hv-accent flex items-center justify-center">
-                  <span className="text-white text-3xl font-bold">{round.op}</span>
+            {/* Operator + target */}
+            <div className="flex items-center gap-4 animate-fade-in" key={round.target + round.op}>
+              <div className="flex flex-col items-center">
+                <div className="w-12 h-12 rounded-xl bg-hv-accent flex items-center justify-center">
+                  <span className="text-white text-2xl font-bold">{round.op}</span>
                 </div>
+                <p className="text-hv-muted text-xs mt-1">{OP_LABELS[round.op]}</p>
               </div>
-              <p className="text-hv-muted text-sm mt-2">{OP_LABELS[round.op]}</p>
-            </div>
-
-            {/* Target */}
-            <div className="text-center">
-              <p className="text-slate-400 text-sm uppercase tracking-widest mb-1">Target</p>
-              <div className={`w-24 h-24 mx-auto rounded-2xl border-2 flex items-center justify-center transition-colors ${
-                feedback === 'correct' ? 'border-emerald-500 bg-emerald-900/30' :
-                feedback === 'wrong' ? 'border-red-500 bg-red-900/20' :
-                'border-hv-border bg-hv-card'
-              }`}>
-                <span className="text-white text-4xl font-bold tabular-nums">{round.target}</span>
+              <div className="text-hv-muted text-xl font-light">→</div>
+              <div className="flex flex-col items-center">
+                <div className={`w-20 h-20 rounded-2xl border-2 flex items-center justify-center transition-colors ${
+                  feedback === 'correct' ? 'border-emerald-500 bg-emerald-900/30' :
+                  feedback === 'wrong'   ? 'border-red-500 bg-red-900/20' :
+                  isHit                  ? 'border-emerald-400 bg-emerald-900/20' :
+                  'border-hv-border bg-hv-card'
+                }`}>
+                  <span className="text-white text-3xl font-bold tabular-nums">{round.target}</span>
+                </div>
+                <p className="text-hv-muted text-xs mt-1">Target</p>
               </div>
             </div>
 
-            {/* Number grid */}
-            <div className="grid grid-cols-3 gap-3 w-full max-w-xs animate-fade-in">
-              {round.numbers.map((num, idx) => {
-                const isSel = selected.includes(idx)
-                let cls = 'h-16 rounded-xl border-2 text-xl font-bold transition-all duration-100 active:scale-95 '
-                if (feedback !== null && isSel) {
-                  cls += feedback === 'correct'
-                    ? 'border-emerald-500 bg-emerald-800 text-white'
-                    : 'border-red-500 bg-red-900 text-white'
-                } else if (isSel) {
-                  cls += 'border-hv-accent-light bg-blue-900/40 text-white'
-                } else {
-                  cls += 'border-hv-border bg-hv-card text-white hover:border-hv-accent-light hover:bg-hv-card/80'
-                }
-                return (
-                  <button
-                    key={idx}
-                    className={cls}
-                    onClick={() => handleTileClick(idx)}
-                    disabled={feedback !== null && selected.length === 2}
-                  >
-                    {num}
-                  </button>
-                )
-              })}
+            {/* Running expression */}
+            <div className="h-7 flex items-center justify-center">
+              {expression ? (
+                <p className={`text-sm font-mono font-semibold transition-colors ${
+                  feedback === 'correct' ? 'text-emerald-400' :
+                  feedback === 'wrong'   ? 'text-red-400' :
+                  isHit                  ? 'text-emerald-300' :
+                  'text-slate-300'
+                }`}>
+                  {expression}
+                  {isHit && feedback === null ? ' ✓' : ''}
+                </p>
+              ) : (
+                <p className="text-hv-muted text-sm">
+                  {round.op === '+' ? 'Select 2–3 tiles that sum to the target' : 'Select 2 tiles'}
+                </p>
+              )}
             </div>
 
-            {/* Instruction / feedback */}
-            <p className={`text-sm font-semibold transition-colors ${
-              feedback === 'correct' ? 'text-emerald-400' :
-              feedback === 'wrong' ? 'text-red-400' :
-              'text-hv-muted'
-            }`}>
-              {feedback === 'correct' ? '✓ Correct!' :
-               feedback === 'wrong' ? '✗ Wrong pair' :
-               `Select 2 numbers · ${2 - selected.length} remaining`}
-            </p>
+            {/* Hex tile grid (3×3) */}
+            <div className="grid grid-cols-3 gap-x-2 gap-y-1 animate-fade-in" key={round.numbers.join(',')}>
+              {round.numbers.map((num, idx) => (
+                <HexTile
+                  key={idx}
+                  num={num}
+                  selected={selected.includes(idx)}
+                  feedback={feedback}
+                  onClick={() => handleTileClick(idx)}
+                  disabled={feedbackActiveRef.current}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>

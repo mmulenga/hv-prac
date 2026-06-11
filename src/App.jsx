@@ -1,6 +1,7 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, lazy, Suspense, useEffect } from 'react'
 import GameCard from './components/GameCard'
 import AuthModal from './components/AuthModal'
+import CarbonAd from './components/CarbonAd'
 import { useAuth } from './context/AuthContext'
 import { useScores } from './hooks/useScores'
 import './App.css'
@@ -75,7 +76,10 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false)
   const [sessionScores, setSessionScores] = useState({}) // fallback for guests
 
-  const { user, loading } = useAuth()
+  const { user, loading, isPremium } = useAuth()
+
+  // Close auth modal automatically after sign-in
+  useEffect(() => { if (user) setShowAuth(false) }, [user])
   const { bestScores, saveScore } = useScores()
 
   function handleGameEnd(gameId, result) {
@@ -173,6 +177,13 @@ export default function App() {
           ))}
         </div>
       </div>
+
+      {/* Ad slot — shown only for free signed-in users */}
+      {user && !isPremium && (
+        <div className="max-w-5xl mx-auto w-full px-6 pb-2">
+          <CarbonAd />
+        </div>
+      )}
 
       {/* Footer */}
       <div className="mt-auto border-t border-hv-border px-6 py-4 text-center">

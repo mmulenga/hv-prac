@@ -17,24 +17,67 @@ const wobbleSec    = d => d < 3 ? 0 : d < 6 ? 5 : d < 9 ? 3 : 2
 const staticRotDeg = d => d < 4 ? 0 : d < 7 ? 20 : 40
 const tileSpinSec  = d => d < 9 ? 0 : d < 11 ? 8 : 5
 
-// Base tile positions in normalised [0,1] coords.
-// calc(x * (100% - 9rem)) keeps every tile fully inside its container.
-// Zones are shuffled each round so the matching pair lands anywhere.
-const ZONES_4 = [[0.04, 0.06], [0.60, 0.04], [0.06, 0.58], [0.62, 0.60]]
-const ZONES_6 = [
-  [0.02, 0.05], [0.38, 0.03], [0.74, 0.05],
-  [0.05, 0.56], [0.40, 0.58], [0.72, 0.55],
-]
+// Tile pixel size: 4-tile rounds use w-36 (144 px); 6-tile rounds use w-24
+// (96 px) so three tiles across fit in a ~360 px wide phone without overlap.
+const tilePx = k => k <= 4 ? 144 : 96
 
+// Virtual canvas dimensions used for position generation.
+// Normalised coords are then mapped to any real container via CSS calc().
+const CANVAS_W = 360
+const CANVAS_H = 520
+
+// Generate k non-overlapping, evenly-distributed positions.
+// Strategy: seed from a shuffled grid (ensures spread), then force-separate
+// any pairs that are still too close, clamping to canvas bounds each pass.
 function genPositions(k) {
-  const base = k <= 4 ? ZONES_4 : ZONES_6
-  return [...base]
-    .sort(() => Math.random() - 0.5)
-    .slice(0, k)
-    .map(([bx, by]) => [
-      Math.max(0, Math.min(1, bx + (Math.random() - 0.5) * 0.18)),
-      Math.max(0, Math.min(1, by + (Math.random() - 0.5) * 0.18)),
-    ])
+  const T   = tilePx(k)
+  const SEP = T + 12         // min centre-to-centre distance (12 px gap)
+  const PAD = T / 2          // centres stay this far from every edge
+
+  const cols = k <= 4 ? 2 : 3
+  const rows = Math.ceil(k / cols)
+  const cW   = CANVAS_W / cols
+  const cH   = CANVAS_H / rows
+
+  // Assign tiles to shuffled grid cells so each tile starts in a different zone
+  const cells = Array.from({ length: k }, (_, i) => [i % cols, Math.floor(i / cols)])
+  cells.sort(() => Math.random() - 0.5)
+
+  // Place centre randomly within each cell (staying T/2 from each wall)
+  let pts = cells.map(([c, r]) => [
+    cW * c + PAD + Math.random() * Math.max(0, cW - T),
+    cH * r + PAD + Math.random() * Math.max(0, cH - T),
+  ])
+
+  // Force-separate: push overlapping pairs apart, then clamp to canvas
+  for (let iter = 0; iter < 400; iter++) {
+    let moved = false
+    for (let i = 0; i < k; i++) {
+      for (let j = i + 1; j < k; j++) {
+        const dx = pts[i][0] - pts[j][0]
+        const dy = pts[i][1] - pts[j][1]
+        const d  = Math.sqrt(dx * dx + dy * dy) || 1e-4
+        if (d < SEP) {
+          const push = (SEP - d) / 2 + 0.5
+          const ux = dx / d, uy = dy / d
+          pts[i] = [pts[i][0] + ux * push, pts[i][1] + uy * push]
+          pts[j] = [pts[j][0] - ux * push, pts[j][1] - uy * push]
+          moved = true
+        }
+      }
+      pts[i] = [
+        Math.max(PAD, Math.min(CANVAS_W - PAD, pts[i][0])),
+        Math.max(PAD, Math.min(CANVAS_H - PAD, pts[i][1])),
+      ]
+    }
+    if (!moved) break
+  }
+
+  // Convert centre-px → normalised top-left for CSS calc(x * (100% - Tpx))
+  return pts.map(([cx, cy]) => [
+    (cx - T / 2) / (CANVAS_W - T),
+    (cy - T / 2) / (CANVAS_H - T),
+  ])
 }
 
 function mkPat(n) {
@@ -76,7 +119,7 @@ function genRound(diff) {
     ? Array.from({ length: k }, () => parseFloat((-(Math.random() * spinSec)).toFixed(2)))
     : null
 
-  return { pats, answer: [a1, a2], wobble: wobbleSec(diff), angles, spinSec, spinDelays, positions: genPositions(k) }
+  return { pats, answer: [a1, a2], wobble: wobbleSec(diff), angles, spinSec, spinDelays, positions: genPositions(k), tileSize: tilePx(k) }
 }
 
 // SVG icon placed at (cx,cy) in a 100×100 viewbox
@@ -99,7 +142,9 @@ const ICON_POS = {
   5: [[26, 26], [66, 26], [46, 52], [26, 76], [68, 76]],
 }
 
-function Cube({ pat, idx, selected, answer, result, wobble, angle, spinSec, spinDelay, onClick, disabled }) {
+function Cube({ pat, idx, selected, answer, result, wobble, angle, spinSec, spinDelay, onClick, disabled, small }) {
+  const wh    = small ? 'w-24 h-24' : 'w-36 h-36'
+  const svgPx = small ? 64 : 96
   const pos   = ICON_POS[pat.length] || ICON_POS[2]
   const isSel = selected.includes(idx)
   const isAns = answer.includes(idx)
@@ -133,12 +178,12 @@ function Cube({ pat, idx, selected, answer, result, wobble, angle, spinSec, spin
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`relative w-36 h-36 rounded-2xl border-2 flex items-center justify-center
+      className={`relative ${wh} rounded-2xl border-2 flex items-center justify-center
         transition-all duration-100 active:scale-95 ${border} ${bg}`}
       style={wobble > 0 ? { animation: `cubeWobble ${wobble}s ease-in-out infinite` } : undefined}
     >
       <div style={innerStyle}>
-        <svg width={96} height={96} viewBox="0 0 100 100">
+        <svg width={svgPx} height={svgPx} viewBox="0 0 100 100">
           {pos.map(([px, py], i) => <Sym key={i} name={pat[i]} cx={px} cy={py} />)}
         </svg>
       </div>
@@ -355,16 +400,17 @@ export default function ShapeDance({ onEnd, onBack }) {
       </div>
 
       {/* Scattered tiles — each tile is absolutely positioned in the flex-1 area */}
-      <div className="relative flex-1 w-full">
+      <div className="relative flex-1 w-full" style={{ minHeight: CANVAS_H }}>
         {round.pats.map((pat, idx) => {
           const [px, py] = round.positions[idx]
+          const T = round.tileSize ?? 144
           return (
             <div
               key={idx}
               className="absolute"
               style={{
-                left: `calc(${px} * (100% - 9rem))`,
-                top:  `calc(${py} * (100% - 9rem))`,
+                left: `calc(${px} * (100% - ${T}px))`,
+                top:  `calc(${py} * (100% - ${T}px))`,
               }}
             >
               <Cube
@@ -379,6 +425,7 @@ export default function ShapeDance({ onEnd, onBack }) {
                 spinDelay={round.spinDelays?.[idx] ?? 0}
                 onClick={() => handleCubeClick(idx)}
                 disabled={result !== null}
+                small={T < 144}
               />
             </div>
           )

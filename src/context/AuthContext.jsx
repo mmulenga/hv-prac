@@ -49,7 +49,7 @@ export function AuthProvider({ children }) {
       .eq('user_id', session.user.id)
       .single()
     setIsPremium(data?.is_premium ?? false)
-  }, [session?.user?.id])
+  }, [session])
 
   return (
     <AuthContext.Provider value={{

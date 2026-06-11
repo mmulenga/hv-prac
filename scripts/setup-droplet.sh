@@ -33,6 +33,7 @@ CONF=/etc/nginx/sites-available/hyperprepapp
 cat > "$CONF" <<NGINX
 server {
     listen 80;
+    listen [::]:80;
     server_name $SERVER_NAME;
 
     root /var/www/hyperprepapp;

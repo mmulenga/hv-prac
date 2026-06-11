@@ -10,10 +10,12 @@ const SYM_CLR = {
   square: '#34d399',  diamond: '#c084fc', cross: '#fb923c',
 }
 
-const iconCount = d => d < 3 ? 2 : d < 6 ? 3 : d < 9 ? 4 : 5
-const cubeCount = d => d < 7 ? 4 : 6
-const roundSecs = d => Math.max(8, 18 - d)
-const wobbleSec = d => d < 3 ? 0 : d < 6 ? 5 : d < 9 ? 3 : 2
+const iconCount    = d => d < 3 ? 2 : d < 6 ? 3 : d < 9 ? 4 : 5
+const cubeCount    = d => d < 7 ? 4 : 6
+const roundSecs    = d => Math.max(8, 18 - d)
+const wobbleSec    = d => d < 3 ? 0 : d < 6 ? 5 : d < 9 ? 3 : 2
+const staticRotDeg = d => d < 4 ? 0 : d < 7 ? 20 : 40
+const tileSpinSec  = d => d < 9 ? 0 : d < 11 ? 8 : 5
 
 function mkPat(n) {
   return Array.from({ length: n }, () => SYMS[~~(Math.random() * SYMS.length)]).sort()
@@ -40,7 +42,21 @@ function genRound(diff) {
     return d ?? mkPat(n)
   })
 
-  return { pats, answer: [a1, a2], wobble: wobbleSec(diff) }
+  const spinSec = tileSpinSec(diff)
+  const maxRot  = staticRotDeg(diff)
+
+  // Per-tile rotation angles used either as static offsets (low-mid levels)
+  // or to derive animation start-phase via negative delay (spin levels).
+  const angles = Array.from({ length: k }, () =>
+    maxRot > 0 ? Math.round(Math.random() * maxRot * 2 - maxRot) : 0
+  )
+  // Negative delays make the spin animation appear to start mid-revolution,
+  // giving each tile a different initial orientation.
+  const spinDelays = spinSec > 0
+    ? Array.from({ length: k }, () => parseFloat((-(Math.random() * spinSec)).toFixed(2)))
+    : null
+
+  return { pats, answer: [a1, a2], wobble: wobbleSec(diff), angles, spinSec, spinDelays }
 }
 
 // SVG icon placed at (cx,cy) in a 100×100 viewbox
@@ -63,7 +79,7 @@ const ICON_POS = {
   5: [[26, 26], [66, 26], [46, 52], [26, 76], [68, 76]],
 }
 
-function Cube({ pat, idx, selected, answer, result, wobble, onClick, disabled }) {
+function Cube({ pat, idx, selected, answer, result, wobble, angle, spinSec, spinDelay, onClick, disabled }) {
   const pos   = ICON_POS[pat.length] || ICON_POS[2]
   const isSel = selected.includes(idx)
   const isAns = answer.includes(idx)
@@ -80,6 +96,19 @@ function Cube({ pat, idx, selected, answer, result, wobble, onClick, disabled })
     border = 'border-hv-border hover:border-slate-400'
   }
 
+  // Inner content style: spinning beats static rotation.
+  // Wobble lives on the outer button and is independent.
+  let innerStyle
+  if (spinSec > 0) {
+    innerStyle = {
+      animation: `tileSpin ${spinSec}s linear infinite`,
+      animationDelay: `${spinDelay}s`,
+      transformOrigin: 'center',
+    }
+  } else if (angle) {
+    innerStyle = { transform: `rotate(${angle}deg)` }
+  }
+
   return (
     <button
       onClick={onClick}
@@ -88,9 +117,11 @@ function Cube({ pat, idx, selected, answer, result, wobble, onClick, disabled })
         transition-all duration-100 active:scale-95 ${border} ${bg}`}
       style={wobble > 0 ? { animation: `cubeWobble ${wobble}s ease-in-out infinite` } : undefined}
     >
-      <svg width={96} height={96} viewBox="0 0 100 100">
-        {pos.map(([px, py], i) => <Sym key={i} name={pat[i]} cx={px} cy={py} />)}
-      </svg>
+      <div style={innerStyle}>
+        <svg width={96} height={96} viewBox="0 0 100 100">
+          {pos.map(([px, py], i) => <Sym key={i} name={pat[i]} cx={px} cy={py} />)}
+        </svg>
+      </div>
       {isSel && result === null && (
         <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
           <span className="text-white text-xs font-bold">{selected.indexOf(idx) + 1}</span>
@@ -206,13 +237,13 @@ export default function ShapeDance({ onEnd, onBack }) {
             <div className="text-6xl">🎲</div>
             <h2 className="text-white text-2xl font-bold">Shape Dance</h2>
             <p className="text-slate-400 leading-relaxed">
-              Four cubes appear on screen — each face shows a unique arrangement of symbols.
+              Cubes appear on screen — each showing a unique arrangement of symbols.
               Two cubes share an identical pattern. Find the matching pair before time runs out.
-              Cubes wobble as difficulty increases, making patterns harder to read.
             </p>
             <ul className="text-sm text-slate-400 space-y-1">
               <li>• {TOTAL_ROUNDS} rounds · adaptive difficulty</li>
-              <li>• More symbols &amp; motion at higher levels</li>
+              <li>• Tiles tilt at mid levels, spin at hard levels</li>
+              <li>• More symbols &amp; wobble at higher levels</li>
               <li>• Tap the 2 matching cubes to score</li>
             </ul>
             <button
@@ -315,6 +346,9 @@ export default function ShapeDance({ onEnd, onBack }) {
               answer={result !== null ? round.answer : []}
               result={result}
               wobble={round.wobble}
+              angle={round.angles?.[idx] ?? 0}
+              spinSec={round.spinSec ?? 0}
+              spinDelay={round.spinDelays?.[idx] ?? 0}
               onClick={() => handleCubeClick(idx)}
               disabled={result !== null}
             />

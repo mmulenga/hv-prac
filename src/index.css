@@ -46,6 +46,11 @@
   100% { transform: perspective(450px) rotateY(-22deg) rotateX(6deg); }
 }
 
+@keyframes tileSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 @keyframes hexPulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.75; }

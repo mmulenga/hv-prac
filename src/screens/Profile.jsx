@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -6,6 +6,22 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { getMetric, normalise } from '../hooks/useScores'
+
+async function redirectToCheckout(session) {
+  const { data, error } = await supabase.functions.invoke('create-checkout', {
+    headers: { Authorization: `Bearer ${session?.access_token}` },
+  })
+  if (error || !data?.url) { alert('Could not start checkout. Please try again.'); return }
+  window.location.href = data.url
+}
+
+async function redirectToPortal(session) {
+  const { data, error } = await supabase.functions.invoke('create-portal', {
+    headers: { Authorization: `Bearer ${session?.access_token}` },
+  })
+  if (error || !data?.url) { alert('Could not open billing portal. Please try again.'); return }
+  window.location.href = data.url
+}
 
 const GAME_META = [
   { id: 'numerosity', title: 'Numerosity', color: '#3b82f6', metricLabel: 'Correct', unit: '' },
@@ -83,7 +99,9 @@ function ChartTooltip({ active, payload, label, unit }) {
 
 // ── Main Profile component ────────────────────────────────────────────────
 export default function Profile({ onBack }) {
-  const { user, signOut } = useAuth()
+  const { user, session, signOut, isPremium, refreshPremium } = useAuth()
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const [portalLoading,   setPortalLoading]   = useState(false)
   const [allScores, setAllScores] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeGameId, setActiveGameId] = useState('numerosity')
@@ -91,7 +109,17 @@ export default function Profile({ onBack }) {
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
 
+  // Refresh premium status when returning from Stripe Checkout
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('checkout') === 'success') {
+      refreshPremium()
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!user || !supabase) { setLoading(false); return }
 
     Promise.all([
@@ -145,7 +173,7 @@ export default function Profile({ onBack }) {
 
   // ── Summary stats ─────────────────────────────────────────────────────
   const totalGames = allScores.length
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+  const sevenDaysAgo = useMemo(() => new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(), [allScores])
   const thisWeek = allScores.filter(s => s.created_at > sevenDaysAgo).length
   const mostPlayed = GAME_META.reduce(
     (top, g) => {
@@ -356,6 +384,50 @@ export default function Profile({ onBack }) {
           <div className="bg-hv-card border border-hv-border rounded-2xl p-5">
             <h2 className="text-white font-semibold mb-4">Activity · last 12 weeks</h2>
             <ActivityHeatmap activityMap={activityMap} />
+          </div>
+
+          {/* ── Subscription ──────────────────────────────────────────── */}
+          <div className="bg-hv-card border border-hv-border rounded-2xl p-5">
+            <h2 className="text-white font-semibold mb-4">Subscription</h2>
+            {isPremium ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <span className="px-3 py-1 rounded-full bg-violet-700/40 border border-violet-600 text-violet-300 text-sm font-semibold">
+                    Premium Member
+                  </span>
+                  <span className="text-hv-muted text-sm">Ad-free experience active</span>
+                </div>
+                <button
+                  onClick={async () => {
+                    setPortalLoading(true)
+                    await redirectToPortal(session)
+                    setPortalLoading(false)
+                  }}
+                  disabled={portalLoading}
+                  className="px-4 py-2 rounded-xl bg-hv-border text-white text-sm font-medium hover:border-hv-accent border border-transparent transition-colors disabled:opacity-50"
+                >
+                  {portalLoading ? 'Loading…' : 'Manage Subscription'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-white font-semibold">Upgrade to Premium</p>
+                  <p className="text-hv-muted text-sm mt-0.5">$4 / month · Remove ads · Support the project</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    setCheckoutLoading(true)
+                    await redirectToCheckout(session)
+                    setCheckoutLoading(false)
+                  }}
+                  disabled={checkoutLoading}
+                  className="px-5 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-600 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                >
+                  {checkoutLoading ? 'Loading…' : 'Upgrade — $4/mo'}
+                </button>
+              </div>
+            )}
           </div>
 
         </div>

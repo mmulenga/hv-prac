@@ -1,6 +1,7 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, lazy, Suspense, useEffect } from 'react'
 import GameCard from './components/GameCard'
 import AuthModal from './components/AuthModal'
+import CarbonAd from './components/CarbonAd'
 import { useAuth } from './context/AuthContext'
 import { useScores } from './hooks/useScores'
 import './App.css'
@@ -17,7 +18,7 @@ const GAMES = [
   {
     id: 'numerosity',
     title: 'Numerosity',
-    description: 'An operation symbol is shown — find the two numbers whose combination equals the target.',
+    description: 'A target number and operator appear. Tap hexagonal tiles in sequence to build an expression that hits the target.',
     icon: '🔢',
     gradient: 'from-blue-700 to-blue-900',
     skills: ['Processing Speed', 'Arithmetic'],
@@ -26,7 +27,7 @@ const GAMES = [
   {
     id: 'digitspan',
     title: 'Digit Span',
-    description: 'Watch a sequence of digits appear one at a time, then type them back in order.',
+    description: 'A sequence of digits flashes one at a time. Type it back in order — at higher spans, recall it in reverse.',
     icon: '🧠',
     gradient: 'from-violet-700 to-purple-900',
     skills: ['Working Memory', 'Attention'],
@@ -35,7 +36,7 @@ const GAMES = [
   {
     id: 'puzzle',
     title: 'Puzzle',
-    description: 'Identify the missing piece that completes the 3×3 visual pattern matrix.',
+    description: 'A 3×3 grid of shapes has one cell missing. Study the row and column rules, then pick the piece that completes the pattern.',
     icon: '🧩',
     gradient: 'from-emerald-700 to-teal-900',
     skills: ['Spatial Reasoning', 'Pattern Recognition'],
@@ -44,7 +45,7 @@ const GAMES = [
   {
     id: 'flashback',
     title: 'Flashback',
-    description: 'Decide whether each shape matches the one shown N steps earlier in the sequence.',
+    description: 'A shape flashes briefly, then disappears. Does it match the one shown N steps ago? Hit Match or No Match.',
     icon: '💡',
     gradient: 'from-amber-600 to-orange-900',
     skills: ['Working Memory', 'N-Back'],
@@ -53,11 +54,11 @@ const GAMES = [
   {
     id: 'shapedance',
     title: 'Shape Dance',
-    description: 'Press the button when you see the target shape — ignore all other shapes.',
-    icon: '🔺',
+    description: 'Four cubes appear on screen, each with a unique symbol pattern. Two share an identical pattern — find the matching pair.',
+    icon: '🎲',
     gradient: 'from-rose-700 to-red-900',
-    skills: ['Reaction Time', 'Inhibition'],
-    rounds: '30 trials',
+    skills: ['Spatial Reasoning', 'Pattern Matching'],
+    rounds: '20 rounds',
   },
 ]
 
@@ -75,7 +76,10 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false)
   const [sessionScores, setSessionScores] = useState({}) // fallback for guests
 
-  const { user, loading } = useAuth()
+  const { user, loading, isPremium } = useAuth()
+
+  // Close auth modal automatically after sign-in
+  useEffect(() => { if (user) setShowAuth(false) }, [user])
   const { bestScores, saveScore } = useScores()
 
   function handleGameEnd(gameId, result) {
@@ -173,6 +177,13 @@ export default function App() {
           ))}
         </div>
       </div>
+
+      {/* Ad slot — shown only for free signed-in users */}
+      {user && !isPremium && (
+        <div className="max-w-5xl mx-auto w-full px-6 pb-2">
+          <CarbonAd />
+        </div>
+      )}
 
       {/* Footer */}
       <div className="mt-auto border-t border-hv-border px-6 py-4 text-center">

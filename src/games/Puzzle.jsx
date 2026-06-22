@@ -3,8 +3,8 @@ import GameHeader from '../components/GameHeader'
 
 const TOTAL_PUZZLES = 12
 
-const SHAPES = ['circle', 'square', 'triangle', 'diamond', 'cross']
-const FILLS = ['solid', 'hollow', 'stripe']
+const SHAPES = ['square', 'triangle', 'diamond', 'cross', 'circle']
+const FILLS  = ['solid', 'hollow', 'stripe']
 
 function shuffle(arr) {
   const a = [...arr]
@@ -15,45 +15,46 @@ function shuffle(arr) {
   return a
 }
 
-function pickN(arr, n) {
-  return shuffle([...arr]).slice(0, n)
-}
+function pickN(arr, n) { return shuffle([...arr]).slice(0, n) }
 
-// Generate a matrix puzzle using one of 3 rule types.
-// Returns { grid: Cell[3][3], answer: Cell, choices: Cell[] }
-// Cell = { shape, fill, count }
+// Cell = { shape, fill, count, rotation }
+// rotation is applied to each symbol in the cell (0 | 45 | 90 | 135 | 180 | 225 | 270 | 315)
 function generatePuzzle(seed) {
-  const ruleType = seed % 3
+  const ruleType = seed % 4
 
   const shapes = pickN(SHAPES, 3)
-  const fills = pickN(FILLS, 3)
+  const fills  = pickN(FILLS, 3)
+  // Shapes that show rotation visually (exclude circle which is rotationally symmetric)
+  const rotShapes = SHAPES.filter(s => s !== 'circle')
+  const rotShape  = rotShapes[seed % rotShapes.length]
 
   let grid
   if (ruleType === 0) {
-    // Rule A: row determines shape, col determines fill, count = 2
+    // Rule A: row → shape, col → fill, count = 2, rotation = 0
     grid = Array.from({ length: 3 }, (_, r) =>
       Array.from({ length: 3 }, (_, c) => ({
-        shape: shapes[r],
-        fill: fills[c],
-        count: 2,
+        shape: shapes[r], fill: fills[c], count: 2, rotation: 0,
       }))
     )
   } else if (ruleType === 1) {
-    // Rule B: col determines shape, row determines fill, count = (r+c)%3 +1
+    // Rule B: col → shape, row → fill, count = (r+c)%3+1, rotation = 0
     grid = Array.from({ length: 3 }, (_, r) =>
       Array.from({ length: 3 }, (_, c) => ({
-        shape: shapes[c],
-        fill: fills[r],
-        count: ((r + c) % 3) + 1,
+        shape: shapes[c], fill: fills[r], count: ((r + c) % 3) + 1, rotation: 0,
+      }))
+    )
+  } else if (ruleType === 2) {
+    // Rule C: same shape, fill cycles per row, count increments per col, rotation = 0
+    grid = Array.from({ length: 3 }, (_, r) =>
+      Array.from({ length: 3 }, (_, c) => ({
+        shape: shapes[0], fill: fills[r], count: c + 1, rotation: 0,
       }))
     )
   } else {
-    // Rule C: same shape throughout, fill cycles per row, count increments per col
+    // Rule D: same shape + fill, rotation increases by 45° each cell (left-to-right, top-to-bottom)
     grid = Array.from({ length: 3 }, (_, r) =>
       Array.from({ length: 3 }, (_, c) => ({
-        shape: shapes[0],
-        fill: fills[r],
-        count: c + 1,
+        shape: rotShape, fill: 'solid', count: 1, rotation: ((r * 3 + c) * 45) % 360,
       }))
     )
   }
@@ -61,73 +62,37 @@ function generatePuzzle(seed) {
   const answer = grid[2][2]
 
   // Generate wrong answers by mutating one property of the answer
-  const wrongPool = [
-    { ...answer, shape: shapes[(shapes.indexOf(answer.shape) + 1) % 3] },
-    { ...answer, fill: fills[(fills.indexOf(answer.fill) + 1) % 3] },
-    { ...answer, count: answer.count === 3 ? 1 : answer.count + 1 },
-    { ...answer, shape: shapes[(shapes.indexOf(answer.shape) + 2) % 3], fill: fills[(fills.indexOf(answer.fill) + 2) % 3] },
-  ]
+  let wrongPool
+  if (ruleType === 3) {
+    // Rotation rule — vary rotation for distractors
+    wrongPool = [
+      { ...answer, rotation: (answer.rotation + 45)  % 360 },
+      { ...answer, rotation: (answer.rotation + 90)  % 360 },
+      { ...answer, rotation: (answer.rotation + 135) % 360 },
+      { ...answer, rotation: (answer.rotation + 180) % 360 },
+    ]
+  } else {
+    wrongPool = [
+      { ...answer, shape: shapes[(shapes.indexOf(answer.shape) + 1) % 3] },
+      { ...answer, fill:  fills[ (fills.indexOf(answer.fill)   + 1) % 3] },
+      { ...answer, count: answer.count === 3 ? 1 : answer.count + 1 },
+      { ...answer, shape: shapes[(shapes.indexOf(answer.shape) + 2) % 3], fill: fills[(fills.indexOf(answer.fill) + 2) % 3] },
+    ]
+  }
 
   const choices = shuffle([answer, ...wrongPool.slice(0, 3)])
   return { grid, answer, choices }
 }
 
-// SVG shape renderer
-function ShapeIcon({ shape, fill, size = 28 }) {
-  const cx = size / 2, cy = size / 2, r = size * 0.34
-  const fillColor = '#3b82f6'
-  const strokeColor = '#60a5fa'
-  const sw = 2
-
-  const fillProp = fill === 'solid' ? fillColor : fill === 'hollow' ? 'none' : 'url(#stripe)'
-  const strokeProp = strokeColor
-
-  function renderShape() {
-    switch (shape) {
-      case 'circle':
-        return <circle cx={cx} cy={cy} r={r} fill={fillProp} stroke={strokeProp} strokeWidth={sw} />
-      case 'square':
-        return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} fill={fillProp} stroke={strokeProp} strokeWidth={sw} />
-      case 'triangle':
-        return (
-          <polygon
-            points={`${cx},${cy - r} ${cx + r * 0.87},${cy + r * 0.5} ${cx - r * 0.87},${cy + r * 0.5}`}
-            fill={fillProp} stroke={strokeProp} strokeWidth={sw}
-          />
-        )
-      case 'diamond':
-        return (
-          <polygon
-            points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`}
-            fill={fillProp} stroke={strokeProp} strokeWidth={sw}
-          />
-        )
-      case 'cross':
-        return (
-          <g fill={fillProp} stroke={strokeProp} strokeWidth={sw}>
-            <rect x={cx - r * 0.33} y={cy - r} width={r * 0.66} height={r * 2} />
-            <rect x={cx - r} y={cy - r * 0.33} width={r * 2} height={r * 0.66} />
-          </g>
-        )
-      default:
-        return null
-    }
-  }
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <defs>
-        <pattern id="stripe" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)">
-          <line x1="0" y1="0" x2="0" y2="4" stroke={strokeColor} strokeWidth="2" />
-        </pattern>
-      </defs>
-      {renderShape()}
-    </svg>
-  )
+function cellsEqual(a, b) {
+  return a.shape === b.shape &&
+         a.fill  === b.fill  &&
+         a.count === b.count &&
+         (a.rotation ?? 0) === (b.rotation ?? 0)
 }
 
-function MatrixCell({ shape, fill, count, size = 24, highlight = false }) {
-  const gap = size * 0.15
+function MatrixCell({ shape, fill, count, rotation = 0, size = 24, highlight = false }) {
+  const gap    = size * 0.15
   const totalW = count * size + (count - 1) * gap
   const offsets = Array.from({ length: count }, (_, i) => i * (size + gap) - totalW / 2 + size / 2)
 
@@ -144,7 +109,7 @@ function MatrixCell({ shape, fill, count, size = 24, highlight = false }) {
           </pattern>
         </defs>
         {offsets.map((ox, i) => (
-          <g key={i} transform={`translate(${count > 1 ? ox : 0}, 0)`}>
+          <g key={i} transform={`translate(${count > 1 ? ox : 0}, 0) rotate(${rotation})`}>
             <ShapeInSVG shape={shape} fill={fill} size={size} />
           </g>
         ))}
@@ -154,34 +119,33 @@ function MatrixCell({ shape, fill, count, size = 24, highlight = false }) {
 }
 
 function ShapeInSVG({ shape, fill, size }) {
-  const r = size * 0.38
-  const fillColor = '#3b82f6'
-  const strokeColor = '#60a5fa'
+  const r  = size * 0.38
+  const fp = fill === 'solid' ? '#3b82f6' : fill === 'hollow' ? 'none' : `url(#stripe-${shape}-${fill})`
   const sw = 1.5
-  const fp = fill === 'solid' ? fillColor : fill === 'hollow' ? 'none' : 'url(#stripe-' + shape + '-' + fill + ')'
+  const stroke = '#60a5fa'
 
   switch (shape) {
     case 'circle':
-      return <circle r={r} fill={fp} stroke={strokeColor} strokeWidth={sw} />
+      return <circle r={r} fill={fp} stroke={stroke} strokeWidth={sw} />
     case 'square':
-      return <rect x={-r} y={-r} width={r * 2} height={r * 2} fill={fp} stroke={strokeColor} strokeWidth={sw} />
+      return <rect x={-r} y={-r} width={r * 2} height={r * 2} fill={fp} stroke={stroke} strokeWidth={sw} />
     case 'triangle':
       return (
         <polygon
           points={`0,${-r} ${r * 0.87},${r * 0.5} ${-r * 0.87},${r * 0.5}`}
-          fill={fp} stroke={strokeColor} strokeWidth={sw}
+          fill={fp} stroke={stroke} strokeWidth={sw}
         />
       )
     case 'diamond':
       return (
         <polygon
           points={`0,${-r} ${r},0 0,${r} ${-r},0`}
-          fill={fp} stroke={strokeColor} strokeWidth={sw}
+          fill={fp} stroke={stroke} strokeWidth={sw}
         />
       )
     case 'cross':
       return (
-        <g fill={fp} stroke={strokeColor} strokeWidth={sw}>
+        <g fill={fp} stroke={stroke} strokeWidth={sw}>
           <rect x={-r * 0.3} y={-r} width={r * 0.6} height={r * 2} />
           <rect x={-r} y={-r * 0.3} width={r * 2} height={r * 0.6} />
         </g>
@@ -193,12 +157,12 @@ function ShapeInSVG({ shape, fill, size }) {
 
 // phase: 'start' | 'question' | 'feedback' | 'results'
 export default function Puzzle({ onEnd, onBack }) {
-  const [phase, setPhase] = useState('start')
+  const [phase,     setPhase]     = useState('start')
   const [puzzleIdx, setPuzzleIdx] = useState(0)
-  const [puzzle, setPuzzle] = useState(() => generatePuzzle(0))
-  const [selected, setSelected] = useState(null)
-  const [score, setScore] = useState(0)
-  const [history, setHistory] = useState([]) // array of booleans
+  const [puzzle,    setPuzzle]    = useState(() => generatePuzzle(0))
+  const [selected,  setSelected]  = useState(null)
+  const [score,     setScore]     = useState(0)
+  const [history,   setHistory]   = useState([]) // array of booleans
 
   const startQuestion = useCallback((idx) => {
     setPuzzle(generatePuzzle(idx * 7 + Math.floor(Math.random() * 100)))
@@ -209,11 +173,8 @@ export default function Puzzle({ onEnd, onBack }) {
   function handleChoice(idx) {
     if (phase !== 'question') return
     setSelected(idx)
-    const cell = puzzle.choices[idx]
-    const correct =
-      cell.shape === puzzle.answer.shape &&
-      cell.fill === puzzle.answer.fill &&
-      cell.count === puzzle.answer.count
+    const cell    = puzzle.choices[idx]
+    const correct = cellsEqual(cell, puzzle.answer)
 
     if (correct) setScore(s => s + 1)
     setHistory(h => [...h, correct])
@@ -239,12 +200,13 @@ export default function Puzzle({ onEnd, onBack }) {
             <div className="text-6xl">🧩</div>
             <h2 className="text-white text-2xl font-bold">Puzzle</h2>
             <p className="text-slate-400 leading-relaxed">
-              Each puzzle shows a 3×3 grid of symbols following a hidden rule.
-              The bottom-right cell is missing — identify it from four choices.
+              A 3×3 grid of shapes has one cell missing. Study the row and column rules —
+              patterns involve shape, fill, count, and rotation — then pick the piece that
+              completes the pattern.
             </p>
             <ul className="text-sm text-slate-400 space-y-1">
               <li>• {TOTAL_PUZZLES} puzzles</li>
-              <li>• Look for patterns in shape, fill, and count</li>
+              <li>• Look for patterns in shape, fill, count &amp; rotation</li>
               <li>• +1 point per correct answer</li>
             </ul>
             <button
@@ -328,7 +290,7 @@ export default function Puzzle({ onEnd, onBack }) {
                         ?
                       </div>
                     ) : (
-                      <MatrixCell shape={cell.shape} fill={cell.fill} count={cell.count} />
+                      <MatrixCell shape={cell.shape} fill={cell.fill} count={cell.count} rotation={cell.rotation} />
                     )}
                   </div>
                 )
@@ -344,12 +306,11 @@ export default function Puzzle({ onEnd, onBack }) {
           {choices.map((cell, idx) => {
             let border = 'border-hv-border hover:border-hv-accent-light'
             if (phase === 'feedback') {
-              const isAnswer = cell.shape === puzzle.answer.shape && cell.fill === puzzle.answer.fill && cell.count === puzzle.answer.count
-              if (isAnswer) border = 'border-emerald-500'
+              const isAns = cellsEqual(cell, puzzle.answer)
+              if (isAns)             border = 'border-emerald-500'
               else if (idx === selected) border = 'border-red-500'
-              else border = 'border-hv-border'
+              else                   border = 'border-hv-border'
             }
-
             return (
               <button
                 key={idx}
@@ -357,17 +318,17 @@ export default function Puzzle({ onEnd, onBack }) {
                 onClick={() => handleChoice(idx)}
                 className={`rounded-xl border-2 p-2 flex items-center justify-center transition-colors ${border} bg-hv-card active:scale-95`}
               >
-                <MatrixCell shape={cell.shape} fill={cell.fill} count={cell.count} />
+                <MatrixCell shape={cell.shape} fill={cell.fill} count={cell.count} rotation={cell.rotation ?? 0} />
               </button>
             )
           })}
         </div>
 
         {phase === 'feedback' && (
-          <p className={`text-sm font-semibold animate-fade-in ${selected !== null && choices[selected].shape === puzzle.answer.shape && choices[selected].fill === puzzle.answer.fill && choices[selected].count === puzzle.answer.count ? 'text-emerald-400' : 'text-red-400'}`}>
-            {selected !== null && choices[selected].shape === puzzle.answer.shape && choices[selected].fill === puzzle.answer.fill && choices[selected].count === puzzle.answer.count
-              ? '✓ Correct!'
-              : '✗ Wrong answer'}
+          <p className={`text-sm font-semibold animate-fade-in ${
+            selected !== null && cellsEqual(choices[selected], puzzle.answer) ? 'text-emerald-400' : 'text-red-400'
+          }`}>
+            {selected !== null && cellsEqual(choices[selected], puzzle.answer) ? '✓ Correct!' : '✗ Wrong answer'}
           </p>
         )}
       </div>

@@ -2,7 +2,71 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import GameHeader from '../components/GameHeader'
 
 const GAME_DURATION = 90   // seconds
-const TILE_COUNT    = 9    // 3×3 hexagonal field
+const TILE_COUNT    = 9    // tiles per round
+
+// ── Molecule layout constants ─────────────────────────────────────────────────
+const TILE_W = 64           // hex tile width  (px)
+const TILE_H = 68           // hex tile height (px)
+const HEX_STEP = 80         // centre-to-centre step; safe for all 6 hex directions
+const BOND_MARGIN = 34      // shorten bond lines from each tile centre by this much
+
+// 6 hex directions at 60° intervals
+const HEX_DIRS = [0, 60, 120, 180, 240, 300].map(d => d * Math.PI / 180)
+
+// Rectangle-based overlap check (axis-aligned tiles)
+function tilesOverlap(x1, y1, x2, y2) {
+  return Math.abs(x1 - x2) < TILE_W && Math.abs(y1 - y2) < TILE_H
+}
+
+// Build a random molecular spanning tree of n nodes.
+// Returns { positions: [x,y][], edges: [a,b][] } centred at origin.
+function genMolecule(n) {
+  const positions = [[0, 0]]
+  const edges     = []
+  const degree    = [0]      // connection count per node
+
+  for (let i = 1; i < n; i++) {
+    // Prefer low-degree parents to encourage branching over long chains
+    const parentOrder = Array.from({ length: positions.length }, (_, k) => k)
+      .sort((a, b) => degree[a] - degree[b] + (Math.random() - 0.5) * 1.2)
+
+    const dirs = [...HEX_DIRS].sort(() => Math.random() - 0.5)
+    let placed = false
+
+    outer: for (const p of parentOrder) {
+      for (const dir of dirs) {
+        const nx = positions[p][0] + Math.cos(dir) * HEX_STEP
+        const ny = positions[p][1] + Math.sin(dir) * HEX_STEP
+        if (positions.every(([ex, ey]) => !tilesOverlap(nx, ny, ex, ey))) {
+          positions.push([nx, ny])
+          edges.push([p, i])
+          degree[p]++
+          degree.push(1)
+          placed = true
+          break outer
+        }
+      }
+    }
+
+    if (!placed) {
+      // Fallback: extend horizontally from the last placed tile
+      const last = positions.length - 1
+      positions.push([positions[last][0] + HEX_STEP, 0])
+      edges.push([last, i])
+      degree[last]++
+      degree.push(1)
+    }
+  }
+
+  const xs = positions.map(p => p[0])
+  const ys = positions.map(p => p[1])
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+  return {
+    positions: positions.map(([x, y]) => [x - cx, y - cy]),
+    edges,
+  }
+}
 
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -70,7 +134,8 @@ function generateRound(difficulty, roundsAttempted) {
   }
 
   const numbers = shuffle([...answers, ...distractors]).slice(0, TILE_COUNT)
-  return { op, target, numbers, answers }
+  const { positions, edges } = genMolecule(TILE_COUNT)
+  return { op, target, numbers, answers, positions, edges }
 }
 
 // Compute running result for current selection
@@ -111,26 +176,78 @@ function HexTile({ num, selected, feedback, onClick, disabled }) {
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`relative w-20 h-[88px] flex items-center justify-center transition-all duration-100 active:scale-95`}
+      style={{ width: TILE_W, height: TILE_H }}
+      className="relative flex items-center justify-center transition-all duration-100 active:scale-95"
     >
-      {/* Background hex */}
+      <div className={`absolute inset-0 ${bg} transition-colors duration-100`} style={{ clipPath: hexClip }} />
       <div
-        className={`absolute inset-0 ${bg} transition-colors duration-100`}
-        style={{ clipPath: hexClip }}
-      />
-      {/* Inner border effect */}
-      <div
-        className={`absolute inset-[3px] transition-colors duration-100
-          ${selected
+        className={`absolute inset-[3px] transition-colors duration-100 ${
+          selected
             ? (feedback === 'correct' ? 'bg-emerald-700' : feedback === 'wrong' ? 'bg-red-800' : 'bg-blue-700')
             : 'bg-hv-bg'
-          }`}
+        }`}
         style={{ clipPath: hexClip }}
       />
-      <span className="relative z-10 text-xl font-bold text-white tabular-nums select-none">
-        {num}
-      </span>
+      <span className="relative z-10 text-base font-bold text-white tabular-nums select-none">{num}</span>
     </button>
+  )
+}
+
+// ── Molecule layout: bond lines + scattered hex tiles ─────────────────────
+function MoleculeLayout({ round, selected, feedback, onTileClick, disabled }) {
+  const { numbers, positions, edges } = round
+
+  const xs  = positions.map(p => p[0])
+  const ys  = positions.map(p => p[1])
+  const pad = TILE_W * 0.6
+  const rawW = Math.max(...xs) - Math.min(...xs) + TILE_W + pad * 2
+  const rawH = Math.max(...ys) - Math.min(...ys) + TILE_H + pad * 2
+  const ox   = -Math.min(...xs) + pad   // x offset so all positions are ≥ 0
+  const oy   = -Math.min(...ys) + pad
+
+  // Scale down if the molecule is wider than the available play area
+  const MAX_W = 312
+  const scale = rawW > MAX_W ? MAX_W / rawW : 1
+  const cW = rawW * scale
+  const cH = rawH * scale
+
+  return (
+    <div style={{ width: cW, height: cH }}>
+      <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: rawW, height: rawH }}>
+        {/* Bond lines rendered below tiles */}
+        <svg className="absolute inset-0 pointer-events-none" width={rawW} height={rawH}>
+          {edges.map(([a, b], i) => {
+            const ax = positions[a][0] + ox + TILE_W / 2
+            const ay = positions[a][1] + oy + TILE_H / 2
+            const bx = positions[b][0] + ox + TILE_W / 2
+            const by = positions[b][1] + oy + TILE_H / 2
+            const dx = bx - ax, dy = by - ay
+            const len = Math.sqrt(dx * dx + dy * dy) || 1
+            const ux = dx / len, uy = dy / len
+            return (
+              <line
+                key={i}
+                x1={ax + ux * BOND_MARGIN} y1={ay + uy * BOND_MARGIN}
+                x2={bx - ux * BOND_MARGIN} y2={by - uy * BOND_MARGIN}
+                stroke="#1e3a5f" strokeWidth={7} strokeLinecap="round"
+              />
+            )
+          })}
+        </svg>
+        {/* Hex tiles */}
+        {positions.map(([px, py], idx) => (
+          <div key={idx} className="absolute" style={{ left: px + ox, top: py + oy }}>
+            <HexTile
+              num={numbers[idx]}
+              selected={selected.includes(idx)}
+              feedback={feedback}
+              onClick={() => onTileClick(idx)}
+              disabled={disabled}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -386,18 +503,15 @@ export default function Numerosity({ onEnd, onBack }) {
               )}
             </div>
 
-            {/* Hex tile grid (3×3) */}
-            <div className="grid grid-cols-3 gap-x-2 gap-y-1 animate-fade-in" key={round.numbers.join(',')}>
-              {round.numbers.map((num, idx) => (
-                <HexTile
-                  key={idx}
-                  num={num}
-                  selected={selected.includes(idx)}
-                  feedback={feedback}
-                  onClick={() => handleTileClick(idx)}
-                  disabled={feedbackActiveRef.current}
-                />
-              ))}
+            {/* Molecular bond layout */}
+            <div className="animate-fade-in" key={round.numbers.join(',')}>
+              <MoleculeLayout
+                round={round}
+                selected={selected}
+                feedback={feedback}
+                onTileClick={handleTileClick}
+                disabled={feedbackActiveRef.current}
+              />
             </div>
           </>
         )}
